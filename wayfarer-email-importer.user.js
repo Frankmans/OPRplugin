@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Wayfarer Email Importer
-// @namespace    https://github.com/your-username/portal-submission-tracker
+// @namespace    https://github.com/Frankmans/OPRplugin
 // @version      2.0.0
 // @description  Imports Niantic Wayfarer/Spatial/OPR .eml files using a port of bilde2910/OPR-Tools' email parser, and stores them for the Spatial Nominations Panel script to search.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/*
 // @grant        none
-// @require      file:///PATH/TO/opr-email-lib.js
-// @require      file:///PATH/TO/wst-storage.js
+// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/opr-email-lib.js
+// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/wst-business-logic.js
 // @run-at       document-idle
 // ==/UserScript==
 
