@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.1.0
+// @version      2.2.0
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
@@ -73,6 +73,13 @@
       font-size:12px; margin-bottom:8px;
     }
     #wsnp-filters{ display:flex; gap:6px; margin-bottom:8px; }
+    #wsnp-stats{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+    .wsnp-stat{
+      font-size:10.5px; padding:3px 8px; border-radius:3px; border:1px solid currentColor;
+      cursor:pointer; background:#10160f; user-select:none;
+    }
+    .wsnp-stat.active{ background:currentColor; }
+    .wsnp-stat.active span{ color:#0a0e0c; }
     #wsnp-filters select{
       flex:1; background:#161d19; color:#d7f5e6; border:1px solid #223026; border-radius:4px;
       padding:5px 6px; font-family:monospace; font-size:11.5px;
@@ -123,6 +130,7 @@
     panel.innerHTML = `
       <h3>Wayspot Submissions</h3>
       <div class="wsnp-sub" id="wsnp-summary">Loading...</div>
+      <div id="wsnp-stats"></div>
       <input type="text" id="wsnp-search" placeholder="Search by portal name...">
       <div id="wsnp-filters">
         <select id="wsnp-type-filter">
@@ -169,12 +177,43 @@
       return rows.join('');
     }
 
+    function renderStats() {
+      const statsEl = panel.querySelector('#wsnp-stats');
+      const query = panel.querySelector('#wsnp-search').value.trim().toLowerCase();
+      const typeFilter = panel.querySelector('#wsnp-type-filter').value;
+      const activeStatus = panel.querySelector('#wsnp-status-filter').value;
+
+      // Counts ignore the status filter itself (so switching statuses doesn't
+      // change the other totals out from under you), but do respect the
+      // type filter and search box.
+      const inScope = allSubmissions.filter((s) => matchesFilters(s, query, typeFilter, ''));
+      const counts = {};
+      for (const s of inScope) counts[s.status] = (counts[s.status] || 0) + 1;
+
+      const statuses = ['Pending', 'Accepted', 'Rejected', 'Appeal', 'Duplicate'].filter((st) => counts[st]);
+      const chips = [`<div class="wsnp-stat${activeStatus === '' ? ' active' : ''}" data-status="" style="color:#d7f5e6;"><span>Total: ${inScope.length}</span></div>`];
+      for (const st of statuses) {
+        const color = STATUS_COLORS[st] || '#6b8579';
+        chips.push(`<div class="wsnp-stat${activeStatus === st ? ' active' : ''}" data-status="${st}" style="color:${color};"><span>${st}: ${counts[st]}</span></div>`);
+      }
+      statsEl.innerHTML = chips.join('');
+
+      statsEl.querySelectorAll('.wsnp-stat').forEach((chip) => {
+        chip.addEventListener('click', () => {
+          panel.querySelector('#wsnp-status-filter').value = chip.dataset.status;
+          render();
+        });
+      });
+    }
+
     function render() {
       const listEl = panel.querySelector('#wsnp-list');
       const query = panel.querySelector('#wsnp-search').value.trim().toLowerCase();
       const typeFilter = panel.querySelector('#wsnp-type-filter').value;
       const statusFilter = panel.querySelector('#wsnp-status-filter').value;
       const filtered = allSubmissions.filter((s) => matchesFilters(s, query, typeFilter, statusFilter));
+
+      renderStats();
 
       if (filtered.length === 0) {
         listEl.innerHTML = `<div class="wsnp-empty">${allSubmissions.length === 0
