@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.1.1
+// @version      2.1.0
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
@@ -27,11 +27,10 @@
  * Nothing here talks to Gmail directly. If you haven't imported any emails
  * yet, use the Import Emails button from the companion script first.
  *
- * SETUP NOTE ON THE @require LINES ABOVE: see the note in
- * wayfarer-email-importer.user.js -- same deal, all three scripts need to
- * point at wherever you saved opr-email-lib.js / wst-storage.js /
- * wst-business-logic.js (a local file:/// path with "Allow access to file
- * URLs" enabled, or a hosted raw URL like a GitHub Gist).
+ * SETUP NOTE ON THE @require LINES ABOVE: they point at this script's own
+ * GitHub repo (Frankmans/OPRplugin) for opr-email-lib.js / wst-storage.js /
+ * wst-business-logic.js. If you fork/move the repo, update these three URLs
+ * (and the matching two in wayfarer-email-importer.user.js) to match.
  */
 
 (function () {

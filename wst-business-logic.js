@@ -436,7 +436,11 @@
   // classifiedEmails: array of { email: OPREmail.Email, classification, dateIso }
   // -------------------------------------------------------------------------
 
-  const STYLE_TO_SOURCE = { RECON: "Spatial", WAYFARER: "Wayfarer", INGRESS: "OPR" };
+  const STYLE_TO_SOURCE = {
+    RECON: "Spatial", WAYFARER: "Wayfarer", INGRESS: "OPR",
+    POKEMON_GO: "Pokemon GO", REDACTED: "Unknown", LIGHTSHIP: "Unknown", UNKNOWN: "Unknown",
+  };
+  function sourceForStyle(style) { return STYLE_TO_SOURCE[style] || style; }
 
   function collectNominations(classifiedEmails) {
     const entries = new Map(); // key: portal.toLowerCase()+"|"+date
@@ -490,7 +494,7 @@
         if (e.portal.toLowerCase() === portal.toLowerCase()) { match = e; break; }
       }
       if (!match) {
-        unmatchedDecisions.push({ status, portalGuess: portal, decisionDate: c.dateIso, source: STYLE_TO_SOURCE[c.classification.style] || c.classification.style });
+        unmatchedDecisions.push({ status, portalGuess: portal, decisionDate: c.dateIso, source: sourceForStyle(c.classification.style) });
         continue;
       }
       const prevDate = match._lastDecisionDate;
@@ -508,39 +512,43 @@
     const entries = new Map();
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.PHOTO_RECEIVED)) {
       const parsed = parsePhotoReceived(c.email);
-      const key = `${parsed.portal.toLowerCase()}|${c.dateIso}`;
+      const source = sourceForStyle(c.classification.style);
+      const key = `${parsed.portal.toLowerCase()}|${c.dateIso}|${source}`;
       entries.set(key, {
         ...parsed, submitted_date: c.dateIso, status: "Pending",
-        submission_type: "Photo", source: "Spatial",
+        submission_type: "Photo", source,
       });
     }
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.PHOTO_DECIDED)) {
       const { status, portal } = parsePhotoDecided(c.email);
       if (!status || !portal) continue;
+      const source = sourceForStyle(c.classification.style);
       for (const e of entries.values()) {
-        if (e.portal.toLowerCase() === portal.toLowerCase()) { e.status = status; break; }
+        if (e.portal.toLowerCase() === portal.toLowerCase() && e.source === source) { e.status = status; break; }
       }
     }
     return Array.from(entries.values());
   }
 
   function collectEdits(classifiedEmails) {
-    const entries = new Map(); // key: field|date|portal
+    const entries = new Map(); // key: field|date|portal|source
 
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.EDIT_RECEIVED)) {
       const parsed = parseEditReceived(c.email);
-      const key = `${parsed.edit_field}|${c.dateIso}|${parsed.portal}`;
+      const source = sourceForStyle(c.classification.style);
+      const key = `${parsed.edit_field}|${c.dateIso}|${parsed.portal}|${source}`;
       entries.set(key, {
         ...parsed, submitted_date: c.dateIso, status: "Pending",
-        submission_type: "Edit", source: "Spatial",
+        submission_type: "Edit", source,
       });
     }
 
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.EDIT_DECIDED)) {
       const { status, editField, dateIso } = parseEditDecided(c.email);
       if (!status || !editField || !dateIso) continue;
+      const source = sourceForStyle(c.classification.style);
       for (const entry of entries.values()) {
-        if (entry.edit_field === editField && entry.submitted_date === dateIso) {
+        if (entry.edit_field === editField && entry.submitted_date === dateIso && entry.source === source) {
           entry.status = status;
           break;
         }
@@ -576,7 +584,7 @@
         const fallbackType = parsed.target_type !== "Unknown" ? parsed.target_type : "Nomination";
         entries.push({
           portal: parsed.portal, submitted_date: parsed.original_submitted_date || "",
-          status: "Appeal", submission_type: fallbackType, source: "Spatial",
+          status: "Appeal", submission_type: fallbackType, source: sourceForStyle(c.classification.style),
           edit_field: parsed.edit_field, submission_text: parsed.submission_text,
           supporting_text: parsed.supporting_text, extra_text: [],
           submission_photo_url: parsed.submission_photo_url, supporting_photo_url: parsed.supporting_photo_url,
