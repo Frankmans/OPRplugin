@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
-// @namespace    https://github.com/your-username/portal-submission-tracker
-// @version      2.1.0
+// @namespace    https://github.com/Frankmans/OPRplugin
+// @version      2.1.1
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
 // @grant        none
-// @require      file:///PATH/TO/opr-email-lib.js
-// @require      file:///PATH/TO/wst-storage.js
-// @require      file:///PATH/TO/wst-business-logic.js
+// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/opr-email-lib.js
+// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/wst-storage.js
+// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/wst-business-logic.js
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -53,14 +53,14 @@
 
   const STYLE = `
     #wsnp-btn{
-      position:fixed; bottom:20px; right:20px; z-index:9999;
+      position:fixed; top:20px; right:460px; z-index:9999;
       background:#0a0e0c; color:#3ec6ff; border:1px solid #3ec6ff;
       font-family:monospace; font-size:13px; padding:10px 16px; border-radius:6px;
       cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.4);
     }
     #wsnp-btn:hover{ background:#10160f; }
     #wsnp-panel{
-      position:fixed; bottom:70px; right:20px; z-index:9999;
+      position:fixed; top:70px; right:460px; z-index:9999;
       background:#0a0e0c; color:#d7f5e6; border:1px solid #223026; border-radius:8px;
       font-family:monospace; font-size:12.5px; padding:16px; width:460px; max-height:75vh;
       overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.5); display:none;
