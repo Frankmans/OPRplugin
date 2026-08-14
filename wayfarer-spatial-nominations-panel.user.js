@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.3.0
+// @version      2.3.1
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
@@ -89,7 +89,7 @@
       padding:6px 10px; cursor:pointer; font-family:monospace; font-size:11.5px; margin-right:6px;
     }
     #wsnp-panel button.primary{ background:#00e08a; color:#04140d; border-color:#00e08a; }
-    #wsnp-list{ margin-top:8px; }
+    #wsnp-list{ margin-top:8px; max-height:42vh; overflow-y:auto; overflow-x:hidden; padding-right:4px; }
     .wsnp-row{
       border:1px solid #223026; border-radius:5px; padding:8px 10px; margin-bottom:6px;
       background:#10160f; cursor:pointer;
