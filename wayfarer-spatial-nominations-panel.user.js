@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.2.0
+// @version      2.3.0
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
@@ -102,6 +102,15 @@
     }
     .wsnp-meta{ font-size:10.5px; color:#6b8579; margin-top:3px; }
     .wsnp-notes{ font-size:10.5px; color:#ffb703; margin-top:3px; }
+    .wsnp-resolve{ display:flex; gap:6px; margin-top:4px; }
+    .wsnp-resolve select{
+      flex:1; background:#161d19; color:#d7f5e6; border:1px solid #223026; border-radius:4px;
+      padding:4px 6px; font-family:monospace; font-size:10.5px;
+    }
+    .wsnp-resolve button{
+      background:#161d19; color:#3ec6ff; border:1px solid #3ec6ff; border-radius:4px;
+      padding:4px 8px; cursor:pointer; font-family:monospace; font-size:10.5px; margin:0;
+    }
     .wsnp-detail{ font-size:11px; color:#a8c9b8; margin-top:6px; border-top:1px solid #223026; padding-top:6px; display:none; }
     .wsnp-detail.open{ display:block; }
     .wsnp-detail div{ margin-bottom:4px; }
@@ -156,7 +165,74 @@
     document.body.appendChild(panel);
 
     let allSubmissions = [];
+    let rawSubmissions = []; // Spatial-filtered results before manual overrides are applied
     let unclassifiedCount = 0;
+
+    const MANUAL_OVERRIDES_KEY = 'wsnp_manual_overrides';
+
+    // Stable-ish identity for a submission across refreshes, used to attach
+    // manual review decisions to a specific orphaned entry.
+    function entryKey(s) {
+      return `${s.submission_type}|${s.portal.toLowerCase()}|${s.submitted_date}`;
+    }
+
+    function loadOverrides() {
+      try {
+        const raw = localStorage.getItem(MANUAL_OVERRIDES_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function saveOverrides(list) {
+      try { localStorage.setItem(MANUAL_OVERRIDES_KEY, JSON.stringify(list)); } catch (e) { /* non-fatal */ }
+    }
+
+    // Applies saved manual-review decisions to a fresh submissions list.
+    // 'dismiss' just clears the review warning (this really is its own
+    // entry). 'merge' copies the orphan's status onto the chosen target and
+    // drops the orphan row. Overrides whose orphan no longer exists in the
+    // current data (e.g. it got auto-matched after a logic fix) are pruned
+    // and not re-saved.
+    function applyOverrides(list) {
+      const overrides = loadOverrides();
+      const working = list.map((s) => ({ ...s }));
+      const byKey = new Map(working.map((s) => [entryKey(s), s]));
+      const toRemove = new Set();
+      const stillValid = [];
+
+      for (const ov of overrides) {
+        const orphan = byKey.get(ov.orphanKey);
+        if (!orphan) continue; // stale -- drop silently
+        stillValid.push(ov);
+        if (ov.action === 'dismiss') {
+          delete orphan.notes;
+        } else if (ov.action === 'merge') {
+          const target = ov.targetKey ? byKey.get(ov.targetKey) : null;
+          if (target && target !== orphan) {
+            target.status = orphan.status;
+            toRemove.add(orphan);
+          } else {
+            // Target vanished (e.g. renamed again) -- fall back to just
+            // clearing the warning rather than losing the row entirely.
+            delete orphan.notes;
+          }
+        }
+      }
+
+      if (stillValid.length !== overrides.length) saveOverrides(stillValid);
+      return working.filter((s) => !toRemove.has(s));
+    }
+
+    function saveOverrideAndRerender(override) {
+      const overrides = loadOverrides().filter((ov) => ov.orphanKey !== override.orphanKey);
+      overrides.push(override);
+      saveOverrides(overrides);
+      allSubmissions = applyOverrides(rawSubmissions);
+      render();
+    }
 
     function matchesFilters(s, query, typeFilter, statusFilter) {
       if (typeFilter && s.submission_type !== typeFilter) return false;
@@ -206,6 +282,15 @@
       });
     }
 
+    function resolveOptionsHtml(s) {
+      const selfKey = entryKey(s);
+      return allSubmissions
+        .filter((c) => c.submission_type === s.submission_type && entryKey(c) !== selfKey)
+        .sort((a, b) => a.portal.localeCompare(b.portal))
+        .map((c) => `<option value="${escapeHtml(entryKey(c))}">${escapeHtml(c.portal)} (${escapeHtml(c.submitted_date || 'unknown date')}, ${escapeHtml(c.status)})</option>`)
+        .join('');
+    }
+
     function render() {
       const listEl = panel.querySelector('#wsnp-list');
       const query = panel.querySelector('#wsnp-search').value.trim().toLowerCase();
@@ -232,7 +317,16 @@
               <span class="wsnp-badge" style="color:${color};">${escapeHtml((s.status || '').toUpperCase())}</span>
             </div>
             <div class="wsnp-meta">${escapeHtml(s.submission_type || '')} &middot; submitted ${escapeHtml(s.submitted_date || 'unknown date')}</div>
-            ${s.notes ? `<div class="wsnp-notes">⚠ ${escapeHtml(s.notes)}</div>` : ''}
+            ${s.notes ? `
+              <div class="wsnp-notes">⚠ ${escapeHtml(s.notes)}</div>
+              <div class="wsnp-resolve">
+                <select class="wsnp-resolve-select">
+                  <option value="">This is a separate submission -- keep it</option>
+                  ${resolveOptionsHtml(s)}
+                </select>
+                <button class="wsnp-resolve-confirm">Resolve</button>
+              </div>
+            ` : ''}
             <div class="wsnp-detail">${detailHtml(s)}</div>
           </div>
         `;
@@ -241,6 +335,24 @@
       listEl.querySelectorAll('.wsnp-row').forEach((row) => {
         row.addEventListener('click', () => {
           row.querySelector('.wsnp-detail').classList.toggle('open');
+        });
+      });
+
+      listEl.querySelectorAll('.wsnp-resolve-select, .wsnp-resolve-confirm').forEach((el) => {
+        el.addEventListener('click', (e) => e.stopPropagation());
+      });
+      listEl.querySelectorAll('.wsnp-resolve-confirm').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const row = btn.closest('.wsnp-row');
+          const idx = Number(row.dataset.idx);
+          const s = filtered[idx];
+          const select = row.querySelector('.wsnp-resolve-select');
+          const targetKey = select.value;
+          const override = targetKey
+            ? { orphanKey: entryKey(s), action: 'merge', targetKey }
+            : { orphanKey: entryKey(s), action: 'dismiss' };
+          saveOverrideAndRerender(override);
         });
       });
     }
@@ -267,7 +379,8 @@
 
         const allEraSubmissions = WST.search(classifiedEmails);
         const legacyCount = allEraSubmissions.length - allEraSubmissions.filter((s) => s.source === 'Spatial').length;
-        allSubmissions = allEraSubmissions.filter((s) => s.source === 'Spatial');
+        rawSubmissions = allEraSubmissions.filter((s) => s.source === 'Spatial');
+        allSubmissions = applyOverrides(rawSubmissions);
 
         const parts = [`${allSubmissions.length} submission(s) from ${stored.length} imported email(s)`];
         if (legacyCount) parts.push(`${legacyCount} legacy Wayfarer/OPR submission(s) hidden (already visible in Wayfarer)`);
