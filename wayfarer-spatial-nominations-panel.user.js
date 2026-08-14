@@ -2,7 +2,7 @@
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
 // @version      2.0.0
-// @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
+// @description  Shows your imported Portal nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
 // @grant        none
@@ -122,7 +122,7 @@
     const panel = document.createElement('div');
     panel.id = 'wsnp-panel';
     panel.innerHTML = `
-      <h3>Wayspot Submissions</h3>
+      <h3>Portal Submissions</h3>
       <div class="wsnp-sub" id="wsnp-summary">Loading...</div>
       <input type="text" id="wsnp-search" placeholder="Search by portal name...">
       <div id="wsnp-filters">
