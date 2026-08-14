@@ -6,9 +6,9 @@
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
 // @grant        none
-// @require      file:///PATH/TO/opr-email-lib.js
-// @require      file:///PATH/TO/wst-storage.js
-// @require      file:///PATH/TO/wst-business-logic.js
+// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/main/opr-email-lib.js
+// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/main/wst-storage.js
+// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/main/wst-business-logic.js
 // @run-at       document-idle
 // ==/UserScript==
 
