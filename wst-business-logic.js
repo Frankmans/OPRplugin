@@ -436,6 +436,8 @@
   // classifiedEmails: array of { email: OPREmail.Email, classification, dateIso }
   // -------------------------------------------------------------------------
 
+  const STYLE_TO_SOURCE = { RECON: "Spatial", WAYFARER: "Wayfarer", INGRESS: "OPR" };
+
   function collectNominations(classifiedEmails) {
     const entries = new Map(); // key: portal.toLowerCase()+"|"+date
     const unmatchedDecisions = [];
@@ -488,7 +490,7 @@
         if (e.portal.toLowerCase() === portal.toLowerCase()) { match = e; break; }
       }
       if (!match) {
-        unmatchedDecisions.push({ status, portalGuess: portal, decisionDate: c.dateIso, source: c.classification.style });
+        unmatchedDecisions.push({ status, portalGuess: portal, decisionDate: c.dateIso, source: STYLE_TO_SOURCE[c.classification.style] || c.classification.style });
         continue;
       }
       const prevDate = match._lastDecisionDate;

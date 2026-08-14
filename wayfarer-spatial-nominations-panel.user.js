@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
-// @namespace    https://github.com/Frankmans/OPRplugin
+// @namespace    https://github.com/your-username/portal-submission-tracker
 // @version      2.0.0
-// @description  Shows your imported Portal nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
+// @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
 // @grant        none
-// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/main/opr-email-lib.js
-// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/main/wst-storage.js
-// @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/main/wst-business-logic.js
+// @require      file:///PATH/TO/opr-email-lib.js
+// @require      file:///PATH/TO/wst-storage.js
+// @require      file:///PATH/TO/wst-business-logic.js
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -53,14 +53,14 @@
 
   const STYLE = `
     #wsnp-btn{
-      position:fixed; bottom:20px; right:220px; z-index:9999;
+      position:fixed; bottom:20px; right:20px; z-index:9999;
       background:#0a0e0c; color:#3ec6ff; border:1px solid #3ec6ff;
       font-family:monospace; font-size:13px; padding:10px 16px; border-radius:6px;
       cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.4);
     }
     #wsnp-btn:hover{ background:#10160f; }
     #wsnp-panel{
-      position:fixed; bottom:70px; right:220px; z-index:9999;
+      position:fixed; bottom:70px; right:20px; z-index:9999;
       background:#0a0e0c; color:#d7f5e6; border:1px solid #223026; border-radius:8px;
       font-family:monospace; font-size:12.5px; padding:16px; width:460px; max-height:75vh;
       overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.5); display:none;
@@ -122,7 +122,7 @@
     const panel = document.createElement('div');
     panel.id = 'wsnp-panel';
     panel.innerHTML = `
-      <h3>Portal Submissions</h3>
+      <h3>Wayspot Submissions</h3>
       <div class="wsnp-sub" id="wsnp-summary">Loading...</div>
       <input type="text" id="wsnp-search" placeholder="Search by portal name...">
       <div id="wsnp-filters">
@@ -167,7 +167,6 @@
       if (s.latitude && s.longitude) rows.push(`<div>📍 ${escapeHtml(s.latitude)}, ${escapeHtml(s.longitude)}</div>`);
       if (s.submission_photo_url) rows.push(`<img src="${escapeHtml(s.submission_photo_url)}" alt="Submission photo">`);
       if (s.supporting_photo_url) rows.push(`<img src="${escapeHtml(s.supporting_photo_url)}" alt="Supporting photo">`);
-      if (s.source) rows.push(`<div><b>Source:</b> ${escapeHtml(s.source)}</div>`);
       return rows.join('');
     }
 
@@ -228,9 +227,12 @@
           classifiedEmails.push({ email, classification, dateIso });
         }
 
-        allSubmissions = WST.search(classifiedEmails);
+        const allEraSubmissions = WST.search(classifiedEmails);
+        const legacyCount = allEraSubmissions.length - allEraSubmissions.filter((s) => s.source === 'Spatial').length;
+        allSubmissions = allEraSubmissions.filter((s) => s.source === 'Spatial');
 
         const parts = [`${allSubmissions.length} submission(s) from ${stored.length} imported email(s)`];
+        if (legacyCount) parts.push(`${legacyCount} legacy Wayfarer/OPR submission(s) hidden (already visible in Wayfarer)`);
         if (unclassifiedCount) parts.push(`${unclassifiedCount} email(s) didn't match a known template`);
         summaryEl.textContent = parts.join(' \u2014 ');
       } catch (e) {
