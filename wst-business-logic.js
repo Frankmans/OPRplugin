@@ -489,12 +489,13 @@
     for (const c of decided) {
       const { status, portal } = parseNominationDecided(c.email, c.classification);
       if (!status || !portal) continue;
+      const decisionSource = sourceForStyle(c.classification.style);
       let match = null;
       for (const e of entries.values()) {
-        if (e.portal.toLowerCase() === portal.toLowerCase()) { match = e; break; }
+        if (e.portal.toLowerCase() === portal.toLowerCase() && e.source === decisionSource) { match = e; break; }
       }
       if (!match) {
-        unmatchedDecisions.push({ status, portalGuess: portal, decisionDate: c.dateIso, source: sourceForStyle(c.classification.style) });
+        unmatchedDecisions.push({ status, portalGuess: portal, decisionDate: c.dateIso, source: decisionSource });
         continue;
       }
       const prevDate = match._lastDecisionDate;
@@ -568,10 +569,12 @@
 
     for (const c of received) {
       const parsed = parseAppealReceived(c.email, c.classification);
+      const appealSource = sourceForStyle(c.classification.style);
       let match = null;
       for (const e of entries) {
         if (
           e.portal.toLowerCase() === parsed.portal.toLowerCase() &&
+          e.source === appealSource &&
           datesApproximatelyMatch(e.submitted_date, parsed.original_submitted_date) &&
           (parsed.target_type === "Unknown" || e.submission_type === parsed.target_type)
         ) {
@@ -600,8 +603,9 @@
     for (const c of decided) {
       const { status, portalGuess } = parseAppealDecided(c.email);
       if (!status || !portalGuess) continue;
+      const decisionSource = sourceForStyle(c.classification.style);
       for (const e of entries) {
-        if (e.portal.toLowerCase() === portalGuess.toLowerCase() && e.status === "Appeal") {
+        if (e.portal.toLowerCase() === portalGuess.toLowerCase() && e.status === "Appeal" && e.source === decisionSource) {
           e.status = status;
           break;
         }

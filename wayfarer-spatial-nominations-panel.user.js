@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.3.1
+// @version      2.8.0
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
@@ -10,6 +10,8 @@
 // @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/wst-storage.js
 // @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/wst-business-logic.js
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/wayfarer-spatial-nominations-panel.user.js
+// @downloadURL  https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/wayfarer-spatial-nominations-panel.user.js
 // ==/UserScript==
 
 /*
@@ -74,6 +76,21 @@
     }
     #wsnp-filters{ display:flex; gap:6px; margin-bottom:8px; }
     #wsnp-stats{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+    .wsnp-unmatched-toggle{
+      font-size:11px; color:#ffb703; margin-bottom:8px; cursor:pointer; text-decoration:underline;
+    }
+    #wsnp-unmatched-list{
+      max-height:180px; overflow-y:auto; margin-bottom:8px; border:1px solid #223026;
+      border-radius:5px; padding:8px; font-size:10.5px; background:#10160f;
+    }
+    #wsnp-unmatched-list div.wsnp-unmatched-row{ margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid #223026; }
+    #wsnp-unmatched-list div.wsnp-unmatched-row:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
+    #wsnp-unmatched-list .wsnp-unmatched-subject{ color:#d7f5e6; }
+    #wsnp-unmatched-list .wsnp-unmatched-meta{ color:#6b8579; }
+    #wsnp-unmatched-copy{
+      background:#161d19; color:#d7f5e6; border:1px solid #223026; border-radius:4px;
+      padding:4px 8px; cursor:pointer; font-family:monospace; font-size:10.5px; margin-bottom:8px;
+    }
     .wsnp-stat{
       font-size:10.5px; padding:3px 8px; border-radius:3px; border:1px solid currentColor;
       cursor:pointer; background:#10160f; user-select:none;
@@ -115,6 +132,15 @@
     .wsnp-detail.open{ display:block; }
     .wsnp-detail div{ margin-bottom:4px; }
     .wsnp-detail img{ max-width:100%; border-radius:4px; margin-top:4px; }
+    .wsnp-note-wrap{ margin-top:6px; }
+    .wsnp-note-wrap label{ font-size:10px; color:#6b8579; display:block; margin-bottom:3px; }
+    .wsnp-note-input{
+      width:100%; box-sizing:border-box; background:#161d19; color:#d7f5e6;
+      border:1px solid #223026; border-radius:4px; padding:6px 8px; font-family:monospace;
+      font-size:11px; resize:vertical; min-height:40px;
+    }
+    .wsnp-note-saved{ font-size:10px; color:#00e08a; margin-top:2px; display:none; }
+    .wsnp-note-saved.show{ display:block; }
     .wsnp-empty{ color:#6b8579; font-size:12px; padding:12px 0; }
   `;
 
@@ -139,6 +165,8 @@
     panel.innerHTML = `
       <h3>Wayspot Submissions</h3>
       <div class="wsnp-sub" id="wsnp-summary">Loading...</div>
+      <div class="wsnp-unmatched-toggle" id="wsnp-unmatched-toggle" style="display:none;"></div>
+      <div id="wsnp-unmatched-list" style="display:none;"></div>
       <div id="wsnp-stats"></div>
       <input type="text" id="wsnp-search" placeholder="Search by portal name...">
       <div id="wsnp-filters">
@@ -155,6 +183,10 @@
           <option value="Rejected">Rejected</option>
           <option value="Appeal">Appeal</option>
         </select>
+        <select id="wsnp-sort-order">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+        </select>
       </div>
       <div>
         <button id="wsnp-refresh" class="primary">Refresh</button>
@@ -167,6 +199,7 @@
     let allSubmissions = [];
     let rawSubmissions = []; // Spatial-filtered results before manual overrides are applied
     let unclassifiedCount = 0;
+    let unclassifiedEmails = []; // { subject, from, date, id }
 
     const MANUAL_OVERRIDES_KEY = 'wsnp_manual_overrides';
 
@@ -234,6 +267,25 @@
       render();
     }
 
+    const USER_NOTES_KEY = 'wsnp_user_notes';
+
+    function loadUserNotes() {
+      try {
+        const raw = localStorage.getItem(USER_NOTES_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function saveUserNote(key, text) {
+      const notes = loadUserNotes();
+      if (text.trim()) notes[key] = text;
+      else delete notes[key];
+      try { localStorage.setItem(USER_NOTES_KEY, JSON.stringify(notes)); } catch (e) { /* non-fatal */ }
+    }
+
     function matchesFilters(s, query, typeFilter, statusFilter) {
       if (typeFilter && s.submission_type !== typeFilter) return false;
       if (statusFilter && s.status !== statusFilter) return false;
@@ -250,6 +302,12 @@
       if (s.latitude && s.longitude) rows.push(`<div>📍 ${escapeHtml(s.latitude)}, ${escapeHtml(s.longitude)}</div>`);
       if (s.submission_photo_url) rows.push(`<img src="${escapeHtml(s.submission_photo_url)}" alt="Submission photo">`);
       if (s.supporting_photo_url) rows.push(`<img src="${escapeHtml(s.supporting_photo_url)}" alt="Supporting photo">`);
+      if (s.related_legacy && s.related_legacy.length) {
+        rows.push(`<div>🔗 <b>Also nominated via:</b></div>`);
+        for (const r of s.related_legacy) {
+          rows.push(`<div>&nbsp;&nbsp;${escapeHtml(r.source)} ${escapeHtml(r.submission_type)} \u2014 submitted ${escapeHtml(r.submitted_date || 'unknown date')}, ${escapeHtml(r.status)}</div>`);
+        }
+      }
       return rows.join('');
     }
 
@@ -282,6 +340,19 @@
       });
     }
 
+    function daysPending(submittedDate) {
+      if (!submittedDate) return null;
+      const submitted = new Date(submittedDate + 'T00:00:00Z').getTime();
+      if (isNaN(submitted)) return null;
+      return Math.max(0, Math.floor((Date.now() - submitted) / 86400000));
+    }
+
+    function daysPendingColor(days) {
+      if (days >= 90) return '#ff5d5d';
+      if (days >= 30) return '#ffb703';
+      return '#6b8579';
+    }
+
     function resolveOptionsHtml(s) {
       const selfKey = entryKey(s);
       return allSubmissions
@@ -296,27 +367,39 @@
       const query = panel.querySelector('#wsnp-search').value.trim().toLowerCase();
       const typeFilter = panel.querySelector('#wsnp-type-filter').value;
       const statusFilter = panel.querySelector('#wsnp-status-filter').value;
+      const sortOrder = panel.querySelector('#wsnp-sort-order').value;
       const filtered = allSubmissions.filter((s) => matchesFilters(s, query, typeFilter, statusFilter));
+      const displayList = [...filtered].sort((a, b) => {
+        const cmp = (a.submitted_date || '').localeCompare(b.submitted_date || '');
+        return sortOrder === 'oldest' ? cmp : -cmp;
+      });
 
       renderStats();
 
-      if (filtered.length === 0) {
+      if (displayList.length === 0) {
         listEl.innerHTML = `<div class="wsnp-empty">${allSubmissions.length === 0
           ? 'No imported submissions found yet. Use the companion Email Importer script to add some .eml files first.'
           : 'Nothing matches the current search/filters.'}</div>`;
         return;
       }
 
-      listEl.innerHTML = filtered.map((s, i) => {
+      const userNotes = loadUserNotes();
+
+      listEl.innerHTML = displayList.map((s, i) => {
         const color = STATUS_COLORS[s.status] || '#6b8579';
         const icon = TYPE_ICONS[s.submission_type] || '';
+        const days = s.status === 'Pending' ? daysPending(s.submitted_date) : null;
+        const daysHtml = days !== null
+          ? ` &middot; <span style="color:${daysPendingColor(days)};">⏳ ${days} day${days === 1 ? '' : 's'} pending</span>`
+          : '';
+        const savedNote = userNotes[entryKey(s)] || '';
         return `
           <div class="wsnp-row" data-idx="${i}">
             <div class="wsnp-row-top">
-              <span class="wsnp-portal" title="${escapeHtml(s.portal)}">${icon} ${escapeHtml(s.portal)}</span>
+              <span class="wsnp-portal" title="${escapeHtml(s.portal)}">${icon} ${escapeHtml(s.portal)}${s.related_legacy && s.related_legacy.length ? ' 🔗' : ''} <span class="wsnp-note-badge">${savedNote ? '📝' : ''}</span></span>
               <span class="wsnp-badge" style="color:${color};">${escapeHtml((s.status || '').toUpperCase())}</span>
             </div>
-            <div class="wsnp-meta">${escapeHtml(s.submission_type || '')} &middot; submitted ${escapeHtml(s.submitted_date || 'unknown date')}</div>
+            <div class="wsnp-meta">${escapeHtml(s.submission_type || '')} &middot; submitted ${escapeHtml(s.submitted_date || 'unknown date')}${daysHtml}</div>
             ${s.notes ? `
               <div class="wsnp-notes">⚠ ${escapeHtml(s.notes)}</div>
               <div class="wsnp-resolve">
@@ -327,7 +410,14 @@
                 <button class="wsnp-resolve-confirm">Resolve</button>
               </div>
             ` : ''}
-            <div class="wsnp-detail">${detailHtml(s)}</div>
+            <div class="wsnp-detail">
+              ${detailHtml(s)}
+              <div class="wsnp-note-wrap">
+                <label>Your note</label>
+                <textarea class="wsnp-note-input" placeholder="e.g. resubmit with a better photo...">${escapeHtml(savedNote)}</textarea>
+                <div class="wsnp-note-saved">Saved</div>
+              </div>
+            </div>
           </div>
         `;
       }).join('');
@@ -346,13 +436,30 @@
           e.stopPropagation();
           const row = btn.closest('.wsnp-row');
           const idx = Number(row.dataset.idx);
-          const s = filtered[idx];
+          const s = displayList[idx];
           const select = row.querySelector('.wsnp-resolve-select');
           const targetKey = select.value;
           const override = targetKey
             ? { orphanKey: entryKey(s), action: 'merge', targetKey }
             : { orphanKey: entryKey(s), action: 'dismiss' };
           saveOverrideAndRerender(override);
+        });
+      });
+
+      listEl.querySelectorAll('.wsnp-note-input').forEach((textarea) => {
+        textarea.addEventListener('click', (e) => e.stopPropagation());
+        textarea.addEventListener('blur', () => {
+          const row = textarea.closest('.wsnp-row');
+          const idx = Number(row.dataset.idx);
+          const s = displayList[idx];
+          saveUserNote(entryKey(s), textarea.value);
+
+          row.querySelector('.wsnp-note-badge').textContent = textarea.value.trim() ? '📝' : '';
+
+          const savedEl = row.querySelector('.wsnp-note-saved');
+          savedEl.classList.add('show');
+          clearTimeout(savedEl._hideTimer);
+          savedEl._hideTimer = setTimeout(() => savedEl.classList.remove('show'), 1500);
         });
       });
     }
@@ -364,6 +471,7 @@
         const stored = await WSTStorage.getAllEmails();
         const classifiedEmails = [];
         unclassifiedCount = 0;
+        unclassifiedEmails = [];
         for (const record of stored) {
           const email = new OPREmail.Email(record.headers, record.body);
           let classification;
@@ -371,6 +479,12 @@
             classification = email.classify();
           } catch (e) {
             unclassifiedCount++;
+            unclassifiedEmails.push({
+              subject: email.getFirstHeaderValue('Subject', '(no subject)'),
+              from: email.getFirstHeaderValue('From', '(unknown sender)'),
+              date: email.getFirstHeaderValue('Date', '(unknown date)'),
+              id: record.id,
+            });
             continue;
           }
           const dateIso = WST.parseEmailDate(email.getFirstHeaderValue('Date', ''));
@@ -378,14 +492,42 @@
         }
 
         const allEraSubmissions = WST.search(classifiedEmails);
+        const legacyByPortal = new Map();
+        for (const s of allEraSubmissions) {
+          if (s.source === 'Spatial') continue;
+          const key = s.portal.toLowerCase();
+          if (!legacyByPortal.has(key)) legacyByPortal.set(key, []);
+          legacyByPortal.get(key).push(s);
+        }
         const legacyCount = allEraSubmissions.length - allEraSubmissions.filter((s) => s.source === 'Spatial').length;
-        rawSubmissions = allEraSubmissions.filter((s) => s.source === 'Spatial');
+        rawSubmissions = allEraSubmissions
+          .filter((s) => s.source === 'Spatial')
+          .map((s) => {
+            const related = legacyByPortal.get(s.portal.toLowerCase());
+            if (!related || !related.length) return s;
+            return {
+              ...s,
+              related_legacy: related.map((r) => ({
+                source: r.source, submitted_date: r.submitted_date, status: r.status, submission_type: r.submission_type,
+              })),
+            };
+          });
         allSubmissions = applyOverrides(rawSubmissions);
 
         const parts = [`${allSubmissions.length} submission(s) from ${stored.length} imported email(s)`];
         if (legacyCount) parts.push(`${legacyCount} legacy Wayfarer/OPR submission(s) hidden (already visible in Wayfarer)`);
-        if (unclassifiedCount) parts.push(`${unclassifiedCount} email(s) didn't match a known template`);
         summaryEl.textContent = parts.join(' \u2014 ');
+
+        const unmatchedEl = panel.querySelector('#wsnp-unmatched-toggle');
+        const unmatchedListEl = panel.querySelector('#wsnp-unmatched-list');
+        if (unclassifiedCount) {
+          unmatchedEl.textContent = `⚠ ${unclassifiedCount} email(s) didn't match a known template (click to view)`;
+          unmatchedEl.style.display = '';
+          if (unmatchedListEl.style.display !== 'none') renderUnmatchedList();
+        } else {
+          unmatchedEl.style.display = 'none';
+          unmatchedListEl.style.display = 'none';
+        }
       } catch (e) {
         summaryEl.textContent = `Could not load stored emails: ${e.message || e}`;
         allSubmissions = [];
@@ -393,12 +535,45 @@
       render();
     }
 
+    function renderUnmatchedList() {
+      const listEl = panel.querySelector('#wsnp-unmatched-list');
+      const rows = unclassifiedEmails.map((e) => `
+        <div class="wsnp-unmatched-row">
+          <div class="wsnp-unmatched-subject">${escapeHtml(e.subject)}</div>
+          <div class="wsnp-unmatched-meta">${escapeHtml(e.from)} &middot; ${escapeHtml(e.date)}</div>
+        </div>
+      `).join('');
+      listEl.innerHTML = `
+        <button id="wsnp-unmatched-copy">Copy all subject lines</button>
+        ${rows}
+      `;
+      listEl.querySelector('#wsnp-unmatched-copy').addEventListener('click', () => {
+        const text = unclassifiedEmails.map((e) => `${e.subject}  [${e.from}, ${e.date}]`).join('\n');
+        navigator.clipboard.writeText(text).then(
+          () => { listEl.querySelector('#wsnp-unmatched-copy').textContent = 'Copied!'; },
+          () => { listEl.querySelector('#wsnp-unmatched-copy').textContent = 'Could not copy -- select the text manually'; }
+        );
+      });
+    }
+
+    panel.querySelector('#wsnp-unmatched-toggle').addEventListener('click', () => {
+      const listEl = panel.querySelector('#wsnp-unmatched-list');
+      const showing = listEl.style.display !== 'none';
+      if (showing) {
+        listEl.style.display = 'none';
+      } else {
+        renderUnmatchedList();
+        listEl.style.display = '';
+      }
+    });
+
     btn.addEventListener('click', () => { panel.classList.toggle('open'); if (panel.classList.contains('open')) refresh(); });
     panel.querySelector('#wsnp-close').addEventListener('click', () => panel.classList.remove('open'));
     panel.querySelector('#wsnp-refresh').addEventListener('click', refresh);
     panel.querySelector('#wsnp-search').addEventListener('input', render);
     panel.querySelector('#wsnp-type-filter').addEventListener('change', render);
     panel.querySelector('#wsnp-status-filter').addEventListener('change', render);
+    panel.querySelector('#wsnp-sort-order').addEventListener('change', render);
 
     refresh();
   }
