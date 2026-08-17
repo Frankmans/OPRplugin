@@ -477,21 +477,47 @@
   };
   function sourceForStyle(style) { return STYLE_TO_SOURCE[style] || style; }
 
+  // Sender domain -> era. This is a much harder signal than subject-line
+  // style classification: Niantic sends from a genuinely different domain
+  // per era/product surface, whereas style is inferred from which subject
+  // regex happened to match, which can occasionally be ambiguous or wrong
+  // (a template gap, an overlapping pattern, etc.). Domain checks take
+  // priority; classification.style is only a fallback for anything sent
+  // from an address not in this list (e.g. a synthetic/forwarded email).
+  const SENDER_DOMAIN_TO_SOURCE = [
+    ["recon.nianticspatial.com", "Spatial"],
+    ["wayfarer.nianticlabs.com", "Wayfarer"],
+    ["portals.ingress.com", "OPR"],
+    ["pokemongolive.com", "Pokemon GO"],
+  ];
+
+  // Authoritative source/era for matching purposes -- prefers the sender's
+  // domain, falls back to style-derived source if the sender is unknown.
+  function resolveSource(email, classification) {
+    let from = "";
+    try { from = (email.getFirstHeaderValue("From", "") || "").toLowerCase(); } catch (e) { /* header missing */ }
+    for (const [domain, source] of SENDER_DOMAIN_TO_SOURCE) {
+      if (from.includes(domain)) return source;
+    }
+    return sourceForStyle(classification.style);
+  }
+
   function collectNominations(classifiedEmails) {
     const entries = new Map(); // key: portal.toLowerCase()+"|"+date
     const unmatchedDecisions = [];
 
     const received = classifiedEmails.filter((c) => c.classification.type === Type.NOMINATION_RECEIVED);
-    // Spatial (RECON) first, so a legacy Wayfarer/OPR dupe of the same
-    // portal+date is skipped in favor of the newer-era data -- same
-    // precedence the Python script used.
-    const bySource = { RECON: [], WAYFARER: [], INGRESS: [] };
+    // Spatial first, so a legacy Wayfarer/OPR dupe of the same portal+date
+    // is skipped in favor of the newer-era data -- same precedence the
+    // Python script used.
+    const bySource = { Spatial: [], Wayfarer: [], OPR: [] };
     for (const c of received) {
-      const bucket = bySource[c.classification.style] || bySource.WAYFARER;
+      const source = resolveSource(c.email, c.classification);
+      const bucket = bySource[source] || bySource.Wayfarer;
       bucket.push(c);
     }
 
-    for (const c of bySource.RECON) {
+    for (const c of bySource.Spatial) {
       const parsed = parseNominationReceived(c.email, c.classification);
       const key = `${parsed.portal.toLowerCase()}|${c.dateIso}`;
       entries.set(key, {
@@ -499,7 +525,7 @@
         submission_type: "Nomination", source: "Spatial", _lastDecisionDate: null,
       });
     }
-    for (const c of bySource.WAYFARER) {
+    for (const c of bySource.Wayfarer) {
       const parsed = parseNominationReceived(c.email, c.classification);
       const key = `${parsed.portal.toLowerCase()}|${c.dateIso}`;
       const existing = entries.get(key);
@@ -509,7 +535,7 @@
         submission_type: "Nomination", source: "Wayfarer", _lastDecisionDate: null,
       });
     }
-    for (const c of bySource.INGRESS) {
+    for (const c of bySource.OPR) {
       const parsed = parseNominationReceived(c.email, c.classification);
       const key = `${parsed.portal.toLowerCase()}|${c.dateIso}`;
       const existing = entries.get(key);
@@ -524,7 +550,7 @@
     for (const c of decided) {
       const { status, portal } = parseNominationDecided(c.email, c.classification);
       if (!portal) continue;
-      const decisionSource = sourceForStyle(c.classification.style);
+      const decisionSource = resolveSource(c.email, c.classification);
       let match = null;
       for (const e of entries.values()) {
         if (e.portal.toLowerCase() === portal.toLowerCase() && e.source === decisionSource) { match = e; break; }
@@ -552,7 +578,7 @@
     const entries = new Map();
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.PHOTO_RECEIVED)) {
       const parsed = parsePhotoReceived(c.email);
-      const source = sourceForStyle(c.classification.style);
+      const source = resolveSource(c.email, c.classification);
       const key = `${parsed.portal.toLowerCase()}|${c.dateIso}|${source}`;
       entries.set(key, {
         ...parsed, submitted_date: c.dateIso, status: "Pending",
@@ -562,7 +588,7 @@
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.PHOTO_DECIDED)) {
       const { status, portal } = parsePhotoDecided(c.email);
       if (!status || !portal) continue;
-      const source = sourceForStyle(c.classification.style);
+      const source = resolveSource(c.email, c.classification);
       for (const e of entries.values()) {
         if (e.portal.toLowerCase() === portal.toLowerCase() && e.source === source) { e.status = status; break; }
       }
@@ -575,7 +601,7 @@
 
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.EDIT_RECEIVED)) {
       const parsed = parseEditReceived(c.email);
-      const source = sourceForStyle(c.classification.style);
+      const source = resolveSource(c.email, c.classification);
       const key = `${parsed.edit_field}|${c.dateIso}|${parsed.portal}|${source}`;
       entries.set(key, {
         ...parsed, submitted_date: c.dateIso, status: "Pending",
@@ -604,7 +630,7 @@
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.EDIT_DECIDED)) {
       const { status, editField, dateIso, portalGuess } = parseEditDecided(c.email);
       if (!editField || !dateIso || !portalGuess) continue;
-      const source = sourceForStyle(c.classification.style);
+      const source = resolveSource(c.email, c.classification);
       const match = findMatch(editField, portalGuess, source, dateIso);
       if (match) applyDecision(match, status);
       else unmatched.push({ status, editField, dateIso, portalGuess, source });
@@ -652,7 +678,7 @@
 
     for (const c of received) {
       const parsed = parseAppealReceived(c.email, c.classification);
-      const appealSource = sourceForStyle(c.classification.style);
+      const appealSource = resolveSource(c.email, c.classification);
       let match = null;
       for (const e of entries) {
         if (
@@ -670,7 +696,7 @@
         const fallbackType = parsed.target_type !== "Unknown" ? parsed.target_type : "Nomination";
         entries.push({
           portal: parsed.portal, submitted_date: parsed.original_submitted_date || "",
-          status: "Appeal", submission_type: fallbackType, source: sourceForStyle(c.classification.style),
+          status: "Appeal", submission_type: fallbackType, source: resolveSource(c.email, c.classification),
           edit_field: parsed.edit_field, submission_text: parsed.submission_text,
           supporting_text: parsed.supporting_text, extra_text: [],
           submission_photo_url: parsed.submission_photo_url, supporting_photo_url: parsed.supporting_photo_url,
@@ -686,7 +712,7 @@
     for (const c of decided) {
       const { status, portalGuess } = parseAppealDecided(c.email);
       if (!portalGuess) continue;
-      const decisionSource = sourceForStyle(c.classification.style);
+      const decisionSource = resolveSource(c.email, c.classification);
       for (const e of entries) {
         if (e.portal.toLowerCase() === portalGuess.toLowerCase() && e.status === "Appeal" && e.source === decisionSource) {
           if (status) e.status = status;
@@ -779,6 +805,6 @@
     // per-email classification/debug info
     parseNominationReceived, parseNominationDecided, parsePhotoReceived, parsePhotoDecided,
     parseEditReceived, parseEditDecided, parseAppealReceived, parseAppealDecided,
-    parseEmailDate, centeredTextBlocks, parseCoordinates,
+    parseEmailDate, centeredTextBlocks, parseCoordinates, resolveSource,
   };
 })(window);
