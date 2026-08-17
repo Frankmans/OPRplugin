@@ -583,22 +583,60 @@
       });
     }
 
+    function findMatch(editField, portalName, source, dateIso) {
+      for (const entry of entries.values()) {
+        if (
+          entry.edit_field === editField &&
+          entry.portal.toLowerCase() === portalName.toLowerCase() &&
+          entry.source === source &&
+          datesApproximatelyMatch(entry.submitted_date, dateIso)
+        ) return entry;
+      }
+      return null;
+    }
+
+    function applyDecision(entry, status) {
+      if (status) entry.status = status;
+      else if (!entry.notes) entry.notes = "A decision arrived for this edit, but the outcome couldn't be determined automatically -- check the original email.";
+    }
+
+    const unmatched = [];
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.EDIT_DECIDED)) {
       const { status, editField, dateIso, portalGuess } = parseEditDecided(c.email);
       if (!editField || !dateIso || !portalGuess) continue;
       const source = sourceForStyle(c.classification.style);
-      let match = null;
-      for (const entry of entries.values()) {
-        if (
-          entry.edit_field === editField &&
-          entry.portal.toLowerCase() === portalGuess.toLowerCase() &&
-          entry.source === source &&
-          datesApproximatelyMatch(entry.submitted_date, dateIso)
-        ) { match = entry; break; }
+      const match = findMatch(editField, portalGuess, source, dateIso);
+      if (match) applyDecision(match, status);
+      else unmatched.push({ status, editField, dateIso, portalGuess, source });
+    }
+
+    // Second pass: a decided edit's portalGuess can reference the portal's
+    // NEW title rather than the one it was originally submitted under --
+    // this happens whenever a Title edit and other edits for the same
+    // portal (e.g. Description) are decided together, since Niantic's
+    // decision email for the *other* field apparently refers to the
+    // already-renamed portal. Resolve via the same title-alias mechanism
+    // used for nomination decisions, built from title edits that already
+    // matched above.
+    if (unmatched.length) {
+      const titleAliases = buildTitleAliasMap(Array.from(entries.values()));
+      const stillUnmatched = [];
+      for (const dec of unmatched) {
+        const resolvedName = resolveViaTitleAliases(dec.portalGuess, titleAliases);
+        const match = findMatch(dec.editField, resolvedName, dec.source, dec.dateIso);
+        if (match) applyDecision(match, dec.status);
+        else stillUnmatched.push(dec);
       }
-      if (!match) continue;
-      if (status) match.status = status;
-      else if (!match.notes) match.notes = "A decision arrived for this edit, but the outcome couldn't be determined automatically -- check the original email.";
+      for (const dec of stillUnmatched) {
+        const key = `orphan|${dec.editField}|${dec.dateIso}|${dec.portalGuess}|${dec.source}`;
+        entries.set(key, {
+          portal: dec.portalGuess, edit_field: dec.editField, submitted_date: dec.dateIso,
+          status: dec.status || "Pending", submission_type: "Edit", source: dec.source,
+          submission_text: "", supporting_text: "", extra_text: [],
+          submission_photo_url: null, supporting_photo_url: null,
+          notes: "Could not automatically match this edit decision to a submitted edit (possibly a related rename shifted the portal's name) -- added for manual review.",
+        });
+      }
     }
 
     return Array.from(entries.values());
