@@ -584,15 +584,21 @@
     }
 
     for (const c of classifiedEmails.filter((c) => c.classification.type === Type.EDIT_DECIDED)) {
-      const { status, editField, dateIso } = parseEditDecided(c.email);
-      if (!status || !editField || !dateIso) continue;
+      const { status, editField, dateIso, portalGuess } = parseEditDecided(c.email);
+      if (!editField || !dateIso || !portalGuess) continue;
       const source = sourceForStyle(c.classification.style);
+      let match = null;
       for (const entry of entries.values()) {
-        if (entry.edit_field === editField && entry.submitted_date === dateIso && entry.source === source) {
-          entry.status = status;
-          break;
-        }
+        if (
+          entry.edit_field === editField &&
+          entry.portal.toLowerCase() === portalGuess.toLowerCase() &&
+          entry.source === source &&
+          datesApproximatelyMatch(entry.submitted_date, dateIso)
+        ) { match = entry; break; }
       }
+      if (!match) continue;
+      if (status) match.status = status;
+      else if (!match.notes) match.notes = "A decision arrived for this edit, but the outcome couldn't be determined automatically -- check the original email.";
     }
 
     return Array.from(entries.values());
