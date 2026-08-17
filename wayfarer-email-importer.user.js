@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wayfarer Email Importer
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      3.1.0
+// @version      3.1.1
 // @description  Imports Niantic Wayfarer/Spatial/OPR emails -- directly from Gmail via OAuth, or from .eml files -- using a port of bilde2910/OPR-Tools' email parser, and stores them for the Spatial Nominations Panel script to search.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/*
@@ -68,14 +68,14 @@
 
   const STYLE = `
     #wei-btn{
-      position:fixed; top:20px; right:20px; z-index:9999;
+      position:fixed; top:80px; right:20px; z-index:9999;
       background:#0a0e0c; color:#00e08a; border:1px solid #00e08a;
       font-family:monospace; font-size:13px; padding:10px 16px; border-radius:6px;
       cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.4);
     }
     #wei-btn:hover{ background:#10160f; }
     #wei-panel{
-      position:fixed; top:70px; right:20px; z-index:9999;
+      position:fixed; top:130px; right:20px; z-index:9999;
       background:#0a0e0c; color:#d7f5e6; border:1px solid #223026; border-radius:8px;
       font-family:monospace; font-size:12.5px; padding:16px; width:420px; max-height:75vh;
       overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.5); display:none;
