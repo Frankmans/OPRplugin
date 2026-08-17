@@ -1830,6 +1830,31 @@ const TEMPLATES = [
       style: Style.RECON,
       language: "en",
     },
+    // Confirmed real subjects (Dutch legacy Wayfarer) -- found via a real
+    // user inbox. Upstream's Dutch templates cover received/decided for
+    // nominations/photos/edits/reports, but have no appeal templates at
+    // all, and the one Dutch NOMINATION_DECIDED template upstream does have
+    // ("Besluit over Niantic Wayspot-nominatie voor...") doesn't match this
+    // wording -- these appear to be a different/older subject-line
+    // generation than what upstream's template was modeled on.
+    {
+      subject: /^Beslissing over je Wayfarer-nominatie,/,
+      type: Type.NOMINATION_DECIDED,
+      style: Style.WAYFARER,
+      language: "nl",
+    },
+    {
+      subject: /^Bedankt! Niantic Wayspot-bezwaar ontvangen voor/,
+      type: Type.NOMINATION_APPEAL_RECEIVED,
+      style: Style.WAYFARER,
+      language: "nl",
+    },
+    {
+      subject: /^Niantic heeft een besluit genomen over je bezwaar voor/,
+      type: Type.NOMINATION_APPEAL_DECIDED,
+      style: Style.WAYFARER,
+      language: "nl",
+    },
   ];
 
   TEMPLATES.push(...SUPPLEMENTAL_TEMPLATES);

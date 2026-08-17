@@ -47,6 +47,28 @@
     return d.toISOString().slice(0, 10);
   }
 
+  // Shared Accepted/Rejected detection used across nomination/photo/edit/
+  // appeal decision emails. English pairs require both words together (the
+  // original, deliberately conservative rule -- avoids a stray
+  // "congratulations" on something unrelated flipping the result). The
+  // Dutch keywords are *best-effort*: not confirmed against a real Dutch
+  // decision email body, only inferred from Niantic's known Dutch template
+  // vocabulary, so treat a Dutch status result with a little more caution
+  // than an English one. They're additive-only, so they can't cause an
+  // English email to be misread.
+  function detectDecisionStatus(text) {
+    const lower = text.toLowerCase();
+    if (
+      (lower.includes("congratulations") && lower.includes("accept")) ||
+      (lower.includes("gefeliciteerd") && (lower.includes("geaccepteerd") || lower.includes("accepteren")))
+    ) return "Accepted";
+    if (
+      lower.includes("not accept") || lower.includes("unfortunately") ||
+      lower.includes("niet accepteren") || lower.includes("niet geaccepteerd") || lower.includes("helaas")
+    ) return "Rejected";
+    return null;
+  }
+
   function photoUrl(doc, altText) {
     if (!doc) return null;
     const img = doc.querySelector(`img[alt="${altText}"]`);
@@ -215,9 +237,7 @@
   // python: parse_nomination_decision -- returns {status, portal}
   function parseNominationDecision(subject, plaintext, doc, htmlText) {
     const text = (plaintext + " " + htmlText).toLowerCase();
-    let status = null;
-    if (text.includes("congratulations") && text.includes("accept")) status = "Accepted";
-    else if (text.includes("not accept") || text.includes("unfortunately")) status = "Rejected";
+    const status = detectDecisionStatus(text);
 
     let m = /nomination decided for (.+?)!?\s*$/i.exec(subject);
     if (m) return { status, portal: m[1].trim() };
@@ -226,6 +246,12 @@
     if (m && m[1].trim()) return { status, portal: m[1].trim() };
 
     m = /Decision on your? Wayfarer Nomination,\s*(.+?)\s*$/i.exec(subject);
+    if (m && m[1].trim()) return { status, portal: m[1].trim() };
+
+    // Confirmed real subject (Dutch legacy Wayfarer) -- different wording
+    // than the upstream Dutch template ("Besluit over Niantic
+    // Wayspot-nominatie voor"), found via a real user inbox.
+    m = /Beslissing over je Wayfarer-nominatie,\s*(.+?)\s*$/i.exec(subject);
     if (m && m[1].trim()) return { status, portal: m[1].trim() };
 
     const collapsed = plaintext.replace(/\s+/g, " ");
@@ -271,9 +297,7 @@
     const doc = htmlDocOf(email);
     const htmlText = (doc && doc.body ? doc.body.textContent : "") || "";
     const text = (plaintext + " " + htmlText).toLowerCase();
-    let status = null;
-    if (text.includes("congratulations") && text.includes("accept")) status = "Accepted";
-    else if (text.includes("not accept") || text.includes("unfortunately")) status = "Rejected";
+    const status = detectDecisionStatus(text);
     const m = /media submission decided for (.+?)\s*$/i.exec(subject);
     return { status, portal: m ? m[1].trim() : null };
   }
@@ -318,9 +342,7 @@
     const text = plaintext + " " + htmlText;
     const lower = text.toLowerCase();
 
-    let status = null;
-    if (lower.includes("congratulations") && lower.includes("accept")) status = "Accepted";
-    else if (lower.includes("not accept") || lower.includes("unfortunately")) status = "Rejected";
+    const status = detectDecisionStatus(lower);
 
     const m = /Wayspot (\w[\w\s]*?) suggestion for (.+?) on ([A-Za-z]+ \d{1,2},? \d{4})/.exec(text);
     if (!m) return { status, editField: null, dateIso: null, portalGuess: null };
@@ -362,7 +384,13 @@
       portal = wayspotM ? wayspotM[1].trim() : parseEditPortalNameFallback(subject);
     } else {
       targetType = "Unknown";
-      portal = parseEditPortalNameFallback(subject);
+      // Confirmed real subject (Dutch legacy Wayfarer) -- the body-text
+      // patterns above are English-only, so a Dutch appeal-received email
+      // would otherwise fall through to the English edit-fallback regex,
+      // which also won't match, leaving the whole subject as the "portal
+      // name". Catch it here instead, before that fallback.
+      const dutchM = /bezwaar ontvangen voor (.+?)!?\s*$/i.exec(subject);
+      portal = dutchM ? dutchM[1].trim() : parseEditPortalNameFallback(subject);
       origDateRaw = null;
     }
 
@@ -402,15 +430,22 @@
 
   // *** BEST-EFFORT / UNCONFIRMED -- see note on the decided-appeal template. ***
   function parseAppealDecided(email) {
+    const subject = subjectOf(email);
     const plaintext = plaintextOf(email);
     const doc = htmlDocOf(email);
     const htmlText = (doc && doc.body ? doc.body.textContent : "") || "";
     const text = plaintext + " " + htmlText;
     const lower = text.toLowerCase();
 
-    let status = null;
-    if (lower.includes("congratulations") && lower.includes("accept")) status = "Accepted";
-    else if (lower.includes("not accept") || lower.includes("unfortunately")) status = "Rejected";
+    const status = detectDecisionStatus(lower);
+
+    // Confirmed real subject (Dutch legacy Wayfarer) -- unlike the
+    // English best-effort template, the portal name is right there in the
+    // subject line, so use it directly instead of guessing from HTML.
+    const dutchM = /bezwaar voor (.+?)\s*$/i.exec(subject);
+    if (dutchM && dutchM[1].trim()) {
+      return { status, portalGuess: dutchM[1].trim() };
+    }
 
     const candidates = centeredTextBlocks(doc).filter(
       (d) => d.length > 3 && d.length < 80 && !d.includes("Recon") && !d.includes("Dear") && !d.toLowerCase().includes("appeal")
@@ -488,7 +523,7 @@
     const decided = classifiedEmails.filter((c) => c.classification.type === Type.NOMINATION_DECIDED);
     for (const c of decided) {
       const { status, portal } = parseNominationDecided(c.email, c.classification);
-      if (!status || !portal) continue;
+      if (!portal) continue;
       const decisionSource = sourceForStyle(c.classification.style);
       let match = null;
       for (const e of entries.values()) {
@@ -500,7 +535,11 @@
       }
       const prevDate = match._lastDecisionDate;
       if (prevDate === null || (c.dateIso && c.dateIso >= prevDate)) {
-        match.status = status;
+        if (status) {
+          match.status = status;
+        } else if (!match.notes) {
+          match.notes = "A decision arrived for this portal, but the outcome couldn't be determined automatically -- check the original email.";
+        }
         match._lastDecisionDate = c.dateIso;
       }
     }
@@ -602,11 +641,12 @@
     );
     for (const c of decided) {
       const { status, portalGuess } = parseAppealDecided(c.email);
-      if (!status || !portalGuess) continue;
+      if (!portalGuess) continue;
       const decisionSource = sourceForStyle(c.classification.style);
       for (const e of entries) {
         if (e.portal.toLowerCase() === portalGuess.toLowerCase() && e.status === "Appeal" && e.source === decisionSource) {
-          e.status = status;
+          if (status) e.status = status;
+          else if (!e.notes) e.notes = "A decision arrived for this appeal, but the outcome couldn't be determined automatically -- check the original email.";
           break;
         }
       }
@@ -643,17 +683,20 @@
       const resolvedName = resolveViaTitleAliases(dec.portalGuess, titleAliases);
       const match = nominations.find((e) => e.portal.trim().toLowerCase() === resolvedName);
       if (match) {
-        match.status = dec.status;
+        if (dec.status) match.status = dec.status;
+        else if (!match.notes) match.notes = "A decision arrived for this portal, but the outcome couldn't be determined automatically -- check the original email.";
       } else {
         stillUnmatched.push(dec);
       }
     }
     for (const dec of stillUnmatched) {
       nominations.push({
-        portal: dec.portalGuess, submitted_date: dec.decisionDate || "", status: dec.status,
+        portal: dec.portalGuess, submitted_date: dec.decisionDate || "", status: dec.status || "Pending",
         submission_type: "Nomination", source: dec.source, submission_text: "", supporting_text: "",
         extra_text: [], submission_photo_url: null, supporting_photo_url: null, latitude: null, longitude: null,
-        notes: "Could not automatically match this decision to a submitted nomination (possibly renamed) -- added for manual review.",
+        notes: dec.status
+          ? "Could not automatically match this decision to a submitted nomination (possibly renamed) -- added for manual review."
+          : "Could not automatically match this decision to a submitted nomination, and its outcome couldn't be determined either -- added for manual review, check the original email for the actual status.",
       });
     }
     return nominations;
