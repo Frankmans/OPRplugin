@@ -93,8 +93,26 @@
     }
   }
 
+  // Some Niantic-generated subject lines contain literal, un-decoded HTML
+  // entities (confirmed real example: a decided-photo email's subject had
+  // "d&apos;Assevillers" where the corresponding received email correctly
+  // had "d'Assevillers") -- apparently built from HTML-escaped text without
+  // being un-escaped back to plain text before being used as the subject.
+  // Decoding here, centrally, means every portal-name extraction path that
+  // reads the subject via subjectOf() benefits automatically, rather than
+  // needing this patched into each individual parser.
+  const HTML_ENTITIES = {
+    "&apos;": "'", "&amp;": "&", "&quot;": '"', "&lt;": "<", "&gt;": ">", "&nbsp;": " ",
+  };
+  function decodeHtmlEntities(text) {
+    return text
+      .replace(/&apos;|&amp;|&quot;|&lt;|&gt;|&nbsp;/g, (m) => HTML_ENTITIES[m])
+      .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)));
+  }
+
   function subjectOf(email) {
-    return email.getFirstHeaderValue("Subject", "");
+    return decodeHtmlEntities(email.getFirstHeaderValue("Subject", ""));
   }
 
   function toTitleCase(s) {
