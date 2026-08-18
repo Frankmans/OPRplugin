@@ -48,18 +48,20 @@
   }
 
   // Shared Accepted/Rejected detection used across nomination/photo/edit/
-  // appeal decision emails. English pairs require both words together (the
-  // original, deliberately conservative rule -- avoids a stray
-  // "congratulations" on something unrelated flipping the result). The
-  // Dutch keywords are *best-effort*: not confirmed against a real Dutch
-  // decision email body, only inferred from Niantic's known Dutch template
-  // vocabulary, so treat a Dutch status result with a little more caution
-  // than an English one. They're additive-only, so they can't cause an
-  // English email to be misread.
+  // appeal decision emails. "Congratulations" alone is treated as a
+  // reliable Accepted signal -- a real confirmed acceptance email
+  // ("Congratulations, Niantic has decided that your nomination should be
+  // added as a Wayspot") never contains the word "accept" at all, so an
+  // earlier AND-with-"accept" rule here was too narrow and silently missed
+  // it. The Dutch keywords are *best-effort*: not confirmed against a real
+  // Dutch decision email body, only inferred from Niantic's known Dutch
+  // template vocabulary, so treat a Dutch status result with a little more
+  // caution than an English one. They're additive-only, so they can't
+  // cause an English email to be misread.
   function detectDecisionStatus(text) {
     const lower = text.toLowerCase();
     if (
-      (lower.includes("congratulations") && lower.includes("accept")) ||
+      lower.includes("congratulations") ||
       (lower.includes("gefeliciteerd") && (lower.includes("geaccepteerd") || lower.includes("accepteren")))
     ) return "Accepted";
     if (
@@ -447,6 +449,17 @@
       return { status, portalGuess: dutchM[1].trim() };
     }
 
+    // Confirmed real subject (English legacy Wayfarer) -- same situation:
+    // "Your Niantic Wayspot appeal has been decided for X" has the portal
+    // name directly in the subject. The HTML-guessing fallback below
+    // assumes a centered-div structure that legacy Wayfarer emails don't
+    // actually use (that's a Spatial-era template pattern), so it's
+    // unreliable for this style specifically.
+    const englishM = /appeal has been decided for (.+?)\s*$/i.exec(subject);
+    if (englishM && englishM[1].trim()) {
+      return { status, portalGuess: englishM[1].trim() };
+    }
+
     const candidates = centeredTextBlocks(doc).filter(
       (d) => d.length > 3 && d.length < 80 && !d.includes("Recon") && !d.includes("Dear") && !d.toLowerCase().includes("appeal")
     );
@@ -519,7 +532,7 @@
 
     for (const c of bySource.Spatial) {
       const parsed = parseNominationReceived(c.email, c.classification);
-      const key = `${parsed.portal.toLowerCase()}|${c.dateIso}`;
+      const key = `Spatial|${parsed.portal.toLowerCase()}|${c.dateIso}`;
       entries.set(key, {
         ...parsed, submitted_date: c.dateIso, status: "Pending",
         submission_type: "Nomination", source: "Spatial", _lastDecisionDate: null,
@@ -527,9 +540,7 @@
     }
     for (const c of bySource.Wayfarer) {
       const parsed = parseNominationReceived(c.email, c.classification);
-      const key = `${parsed.portal.toLowerCase()}|${c.dateIso}`;
-      const existing = entries.get(key);
-      if (existing && existing.source === "Spatial") continue;
+      const key = `Wayfarer|${parsed.portal.toLowerCase()}|${c.dateIso}`;
       entries.set(key, {
         ...parsed, submitted_date: c.dateIso, status: "Pending",
         submission_type: "Nomination", source: "Wayfarer", _lastDecisionDate: null,
@@ -537,9 +548,7 @@
     }
     for (const c of bySource.OPR) {
       const parsed = parseNominationReceived(c.email, c.classification);
-      const key = `${parsed.portal.toLowerCase()}|${c.dateIso}`;
-      const existing = entries.get(key);
-      if (existing && (existing.source === "Spatial" || existing.source === "Wayfarer")) continue;
+      const key = `OPR|${parsed.portal.toLowerCase()}|${c.dateIso}`;
       entries.set(key, {
         ...parsed, submitted_date: c.dateIso, status: "Pending",
         submission_type: "Nomination", source: "OPR", _lastDecisionDate: null,
