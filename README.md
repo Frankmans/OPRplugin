@@ -36,18 +36,28 @@ userscript manager) installed in your browser.
    `opr-email-lib.js` / `wst-storage.js` / `wst-business-logic.js`, so there's
    nothing else to configure there.
 3. Visit [wayfarer.nianticlabs.com](https://wayfarer.nianticlabs.com/) -- you
-   should see an **Import Emails** button (top-right) and a
-   **Submissions** button (bottom-right, on the Nominations page).
+   should see an **Import Emails** button and a **Submissions** button, both
+   docked bottom-right on the Nominations page (Submissions sits further
+   left so the two never overlap when both are open).
 
 ### Updating after a change
 
-`@require`d files (the three library files) get re-fetched by Tampermonkey
-on its own schedule, but the userscripts' own bodies do **not**
-auto-update just because the file changed on GitHub -- you installed a
-local copy. To pick up a change to either `.user.js` file: open its raw URL
-again and let Tampermonkey re-prompt, or open it in the Tampermonkey
-dashboard editor and paste the new content over the old, then bump the
-`@version` line so Tampermonkey knows to re-check the `@require`s too.
+Both userscripts ship with `@updateURL`/`@downloadURL` pointed at their own
+raw GitHub URL, so Tampermonkey periodically checks on its own and offers
+(or silently applies, depending on your Tampermonkey settings) updates when
+the `@version` in this repo is newer than what's installed -- pushing a
+version-bumped change to `main` is normally enough on its own.
+
+Two things worth knowing:
+- `@require`d files (the three library files) are cached separately from
+  that version-check cycle. If you only change one of those and don't bump
+  either userscript's `@version`, Tampermonkey may take a while to notice.
+  When you need it picked up promptly, bump the panel script's `@version`
+  even for a no-op change -- that forces a fresh fetch of everything it
+  `@require`s.
+- After updating, do a **hard refresh** of the Wayfarer page (Ctrl+Shift+R /
+  Cmd+Shift+R), not a normal reload -- the `@require` fetch happens at
+  page-load time, and a soft reload can still serve a browser-cached copy.
 
 ## Two ways to get emails in
 
@@ -85,6 +95,35 @@ The Import Emails panel also has **Export backup JSON** (dumps everything
 in the IndexedDB store to a file) and **Import backup JSON** (restores from
 one) -- handy for moving to a new browser/profile, or just having a safety
 copy before clicking **Clear all stored emails**.
+
+## Using the Submissions panel
+
+- **Status totals.** A row of clickable chips (Total / Pending / Accepted /
+  Rejected / Appeal) up top -- click one to filter the list to that status.
+  Counts respect the type filter and search box, but not each other, so
+  switching between chips doesn't make the other totals jump around.
+- **Search, type filter, status filter, sort order.** Search matches portal
+  name; the sort dropdown toggles Newest/Oldest first.
+- **Days pending.** Every Pending entry shows how long it's been waiting,
+  color-tiered (neutral under 30 days, yellow 30-89, red 90+) -- combine
+  with the Pending status filter and Oldest-first sort to see what's
+  actually worth following up on.
+- **Legacy submission linking.** If a Spatial entry has a same-named legacy
+  Wayfarer/OPR submission (portal name match), it gets a 🔗 next to its
+  name; expand the row to see that history without it cluttering the main
+  list.
+- **Per-submission notes.** Every row's expanded detail has a "Your note"
+  textarea -- type something, click away, it auto-saves (with a brief
+  "Saved" flash) and shows a 📝 badge on the collapsed row.
+- **Manual review.** Some decisions can't be automatically matched back to
+  a submission (most often a renamed portal). These show a ⚠ warning with
+  a dropdown + **Resolve** button: either merge the decision into the
+  correct existing entry, or confirm it really is a separate submission to
+  dismiss the warning. Both choices are remembered.
+- **Unmatched-email diagnostics.** If some imported emails didn't match any
+  known template, the summary line says so and is clickable -- expands into
+  a list of their subject/sender/date, with a **Copy all subject lines**
+  button so you can report a gap.
 
 ## Gmail OAuth setup
 
@@ -135,6 +174,27 @@ to disk) and lasts about an hour. It's re-requested each time you revisit
 the Wayfarer page -- usually silently, without another popup, unless it's
 been revoked or a long time has passed.
 
+## Testing
+
+There's a `node`-native test suite (no framework dependency) covering the
+email-classification library, the matching/business logic, IndexedDB
+storage, and the actual shipped panel script driven through a real DOM via
+jsdom. A GitHub Actions workflow (`.github/workflows/test.yml`) runs it on
+every push/PR to `main`, across Node 20.x and 22.x, plus a syntax check on
+every `.js`/`.user.js` file and a grep guard against leftover
+`file:///PATH/TO`-style placeholders.
+
+```
+npm install
+npm test              # run the suite
+npm run syntax-check  # node --check every shipped script
+```
+
+Several tests are regression tests written directly from real bugs found in
+production use -- each has a comment explaining the original failure. None
+of them use real personal data; scenarios that came from an actual user
+report are reproduced with fictional portal names and email addresses.
+
 ## Architecture notes
 
 - **Only current-era ("Spatial") submissions are shown in the panel.**
@@ -142,20 +202,43 @@ been revoked or a long time has passed.
   matching/dedup logic that spans eras -- like a Spatial decision for a
   portal originally nominated years ago -- still works correctly), but
   they're filtered out of the display since they're already visible in
-  Wayfarer's own contributions page.
-- **A handful of subject-line templates are best-effort.** OPR-Tools'
-  upstream classification templates don't cover every current-era ("Spatial")
-  email type -- some (decided nominations, decided photos, Spatial-branded
-  appeals) were reverse-engineered from real inbox testing and are called
-  out with comments in `opr-email-lib.js`. One (the decided-appeal subject)
+  Wayfarer's own contributions page. When the same portal exists in both
+  eras, the Spatial entry links to its legacy history instead of hiding it
+  entirely (see "Legacy submission linking" above).
+- **Era/source is resolved from the sender's email domain first,**
+  falling back to subject-line style classification only when the sender
+  is unrecognized. The domain is a much harder signal than a regex match
+  against the subject -- Niantic genuinely sends from a different address
+  per product surface (`notices@recon.nianticspatial.com` for Spatial,
+  `notices@wayfarer.nianticlabs.com` for legacy Wayfarer, etc.), whereas
+  style classification can occasionally be ambiguous. This matters
+  specifically for same-day cross-era submissions: two independent
+  nominations for an identically-named portal, one via each era, are kept
+  as fully separate entries rather than one silently overwriting the other.
+- **A handful of subject-line templates are best-effort or entirely
+  supplemental.** OPR-Tools' upstream classification templates don't cover
+  every current-era ("Spatial") email type, and have no Dutch appeal
+  templates at all -- several (decided nominations, decided photos,
+  Spatial-branded appeals, Dutch legacy Wayfarer appeals) were
+  reverse-engineered from real inbox testing and are called out with
+  comments in `opr-email-lib.js`. One (the Spatial decided-appeal subject)
   was never confirmed against a real example and may not match.
-- **Content extraction is English-only**, matching the original Python
-  script's scope. Classification itself (figuring out *what kind* of email
-  something is) works across every language OPR-Tools supports, but pulling
-  out the actual portal name/description/coordinates from the body only has
-  parsers for the English templates. A non-English email will still get
-  stored and classified, but may show up with blank/partial details in the
-  panel.
+- **Status detection (Accepted/Rejected) is keyword-based** and covers
+  every real wording variant found so far, including some that don't
+  contain the word "accept" at all. When it can't determine an outcome, the
+  entry is left as-is with a review note instead of being silently
+  skipped -- the goal is to fail visibly, never silently.
+- **Niantic-generated subject lines occasionally contain un-decoded HTML
+  entities** (a real example: `&apos;` where a real apostrophe should be).
+  These are decoded centrally before any portal-name extraction happens.
+- **Content extraction is mostly English-only**, matching the original
+  Python script's scope, with Dutch support added for the specific legacy
+  Wayfarer templates listed above. Classification itself (figuring out
+  *what kind* of email something is) works across every language
+  OPR-Tools supports, but pulling the actual portal name/description out
+  of the body only has parsers for English (and now some Dutch) wording.
+  A non-English email in an unsupported language will still get stored and
+  classified, but may show up with blank/partial details in the panel.
 
 ## Credits
 

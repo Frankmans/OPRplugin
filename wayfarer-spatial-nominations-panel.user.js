@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.8.4
+// @version      2.9.0
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
@@ -119,14 +119,14 @@
     }
     .wsnp-meta{ font-size:10.5px; color:#6b8579; margin-top:3px; }
     .wsnp-notes{ font-size:10.5px; color:#ffb703; margin-top:3px; }
-    .wsnp-resolve{ display:flex; gap:6px; margin-top:4px; }
+    .wsnp-resolve{ display:flex; flex-direction:column; gap:6px; margin-top:4px; }
     .wsnp-resolve select{
-      flex:1; background:#161d19; color:#d7f5e6; border:1px solid #223026; border-radius:4px;
+      width:100%; box-sizing:border-box; background:#161d19; color:#d7f5e6; border:1px solid #223026; border-radius:4px;
       padding:4px 6px; font-family:monospace; font-size:10.5px;
     }
     .wsnp-resolve button{
-      background:#161d19; color:#3ec6ff; border:1px solid #3ec6ff; border-radius:4px;
-      padding:4px 8px; cursor:pointer; font-family:monospace; font-size:10.5px; margin:0;
+      width:100%; box-sizing:border-box; background:#161d19; color:#3ec6ff; border:1px solid #3ec6ff; border-radius:4px;
+      padding:5px 8px; cursor:pointer; font-family:monospace; font-size:10.5px; margin:0;
     }
     .wsnp-detail{ font-size:11px; color:#a8c9b8; margin-top:6px; border-top:1px solid #223026; padding-top:6px; display:none; }
     .wsnp-detail.open{ display:block; }
@@ -190,6 +190,7 @@
       </div>
       <div>
         <button id="wsnp-refresh" class="primary">Refresh</button>
+        <button id="wsnp-export-csv">Export CSV</button>
         <button id="wsnp-close">Close</button>
       </div>
       <div id="wsnp-list"></div>
@@ -198,6 +199,7 @@
 
     let allSubmissions = [];
     let rawSubmissions = []; // Spatial-filtered results before manual overrides are applied
+    let currentDisplayList = []; // whatever's currently on screen after filters/search/sort -- what CSV export uses
     let unclassifiedCount = 0;
     let unclassifiedEmails = []; // { subject, from, date, id }
 
@@ -353,6 +355,27 @@
       return '#6b8579';
     }
 
+    function csvField(value) {
+      const s = value === null || value === undefined ? '' : String(value);
+      if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }
+
+    function buildCsv(rows) {
+      const userNotes = loadUserNotes();
+      const headers = ['Portal', 'Type', 'Status', 'Submitted Date', 'Days Pending', 'Source', 'Edit Field', 'Suggested Value', 'Your Note', 'Review Note'];
+      const lines = [headers.map(csvField).join(',')];
+      for (const s of rows) {
+        const days = s.status === 'Pending' ? daysPending(s.submitted_date) : '';
+        const note = userNotes[entryKey(s)] || '';
+        lines.push([
+          s.portal, s.submission_type, s.status, s.submitted_date || '', days === null ? '' : days,
+          s.source || '', s.edit_field || '', s.suggested_value || '', note, s.notes || '',
+        ].map(csvField).join(','));
+      }
+      return lines.join('\r\n');
+    }
+
     function resolveOptionsHtml(s) {
       const selfKey = entryKey(s);
       return allSubmissions
@@ -373,6 +396,7 @@
         const cmp = (a.submitted_date || '').localeCompare(b.submitted_date || '');
         return sortOrder === 'oldest' ? cmp : -cmp;
       });
+      currentDisplayList = displayList;
 
       renderStats();
 
@@ -570,6 +594,15 @@
     btn.addEventListener('click', () => { panel.classList.toggle('open'); if (panel.classList.contains('open')) refresh(); });
     panel.querySelector('#wsnp-close').addEventListener('click', () => panel.classList.remove('open'));
     panel.querySelector('#wsnp-refresh').addEventListener('click', refresh);
+    panel.querySelector('#wsnp-export-csv').addEventListener('click', () => {
+      if (!currentDisplayList.length) return;
+      const csv = buildCsv(currentDisplayList);
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `wayspot-submissions-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+    });
     panel.querySelector('#wsnp-search').addEventListener('input', render);
     panel.querySelector('#wsnp-type-filter').addEventListener('change', render);
     panel.querySelector('#wsnp-status-filter').addEventListener('change', render);

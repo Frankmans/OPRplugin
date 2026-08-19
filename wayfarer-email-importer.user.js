@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Wayfarer Email Importer
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      3.1.2
+// @version      3.2.0
 // @description  Imports Niantic Wayfarer/Spatial/OPR emails -- directly from Gmail via OAuth, or from .eml files -- using a port of bilde2910/OPR-Tools' email parser, and stores them for the Spatial Nominations Panel script to search.
 // @author       you
-// @match        https://wayfarer.nianticlabs.com/*
+// @match        https://wayfarer.nianticlabs.com/new/nominations*
 // @grant        GM_xmlhttpRequest
 // @connect      gmail.googleapis.com
 // @connect      accounts.google.com
