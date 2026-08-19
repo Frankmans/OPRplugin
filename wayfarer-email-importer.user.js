@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wayfarer Email Importer
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      3.2.0
+// @version      3.3.0
 // @description  Imports Niantic Wayfarer/Spatial/OPR emails -- directly from Gmail via OAuth, or from .eml files -- using a port of bilde2910/OPR-Tools' email parser, and stores them for the Spatial Nominations Panel script to search.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
@@ -64,6 +64,8 @@
   ];
   const CLIENT_ID_KEY = 'wei_gmail_client_id';
   const LAST_SYNC_KEY = 'wei_gmail_last_sync_ms';
+  const AUTOSYNC_ENABLED_KEY = 'wei_autosync_enabled';
+  const AUTOSYNC_INTERVAL_KEY = 'wei_autosync_interval_min';
   const CONCURRENCY = 5;
 
   const STYLE = `
@@ -102,6 +104,11 @@
     #wei-panel button.danger{ color:#ff5d5d; border-color:#ff5d5d; }
     #wei-panel button:disabled{ opacity:0.5; cursor:default; }
     #wei-gmail-status{ font-size:11px; color:#6b8579; margin:4px 0; }
+    .wei-autosync-row{ display:flex; align-items:center; gap:8px; font-size:11px; color:#d7f5e6; margin:6px 0; }
+    .wei-autosync-row select{
+      background:#161d19; color:#d7f5e6; border:1px solid #223026; border-radius:4px;
+      padding:3px 6px; font-family:monospace; font-size:11px;
+    }
     #wei-progress{ font-size:11px; color:#3ec6ff; margin:4px 0; min-height:14px; }
     #wei-log{
       margin-top:10px; max-height:220px; overflow-y:auto; font-size:11px; line-height:1.5;
@@ -118,6 +125,8 @@
   let accessToken = null;
   let tokenExpiryMs = 0;
   let tokenClient = null;
+  let autoSyncTimer = null;
+  let autoSyncInProgress = false;
 
   function loadGis() {
     return new Promise((resolve, reject) => {
@@ -132,6 +141,13 @@
       ));
       document.head.appendChild(s);
     });
+  }
+
+  function withTimeout(promise, ms, message) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(message || 'Timed out')), ms)),
+    ]);
   }
 
   function requestAccessToken(clientId, interactive) {
@@ -152,9 +168,21 @@
     });
   }
 
-  async function getValidToken(clientId) {
+  // forceNonInteractive is used by background auto-sync ticks -- a timer
+  // callback is never a "user gesture", so browsers will block any popup
+  // it tries to open. A non-interactive (prompt: '') request either
+  // silently renews via an existing Google session with no visible popup,
+  // or fails -- it never falls back to an interactive popup on its own.
+  async function getValidToken(clientId, opts) {
+    const forceNonInteractive = !!(opts && opts.forceNonInteractive);
     if (accessToken && Date.now() < tokenExpiryMs) return accessToken;
-    return requestAccessToken(clientId, !accessToken);
+    const interactive = forceNonInteractive ? false : !accessToken;
+    const request = requestAccessToken(clientId, interactive);
+    // Silent renewal can hang indefinitely (rather than reject) if
+    // third-party cookies are blocked -- only relevant for the
+    // non-interactive path, since the interactive path legitimately waits
+    // on the user to finish a popup.
+    return forceNonInteractive ? withTimeout(request, 10000, 'Silent token refresh timed out') : request;
   }
 
   function gmApiGet(url, token) {
@@ -268,6 +296,15 @@
         <button id="wei-sync" class="primary">Sync new emails</button>
         <button id="wei-full-resync">Force full re-sync</button>
       </div>
+      <div class="wei-autosync-row">
+        <label><input type="checkbox" id="wei-autosync-toggle"> Auto-sync every</label>
+        <select id="wei-autosync-interval">
+          <option value="5">5 min</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">60 min</option>
+        </select>
+      </div>
 
       <h4>Or drop .eml files</h4>
       <div id="wei-dropzone">Drop .eml files here, or click to choose</div>
@@ -303,14 +340,16 @@
 
     function updateGmailStatus() {
       const lastSync = localStorage.getItem(LAST_SYNC_KEY);
+      const auto = loadAutoSyncSettings();
+      const autoSuffix = auto.enabled ? ` Auto-sync: every ${auto.intervalMin} min.` : '';
       if (accessToken) {
-        gmailStatusEl.textContent = lastSync
+        gmailStatusEl.textContent = (lastSync
           ? `Connected. Last synced ${new Date(Number(lastSync)).toLocaleString()}.`
-          : 'Connected. Never synced yet.';
+          : 'Connected. Never synced yet.') + autoSuffix;
       } else {
-        gmailStatusEl.textContent = lastSync
+        gmailStatusEl.textContent = (lastSync
           ? `Not connected this session. Last synced ${new Date(Number(lastSync)).toLocaleString()}.`
-          : 'Not connected.';
+          : 'Not connected.') + autoSuffix;
       }
     }
 
@@ -389,20 +428,33 @@
 
     // ---- Gmail sync ----
 
-    async function runSync(forceFull) {
+    async function runSync(forceFull, opts) {
+      const auto = !!(opts && opts.auto);
       const clientId = clientIdInput.value.trim();
-      if (!clientId) { log('Paste your OAuth Client ID first', 'err'); return; }
+      if (!clientId) {
+        if (!auto) log('Paste your OAuth Client ID first', 'err');
+        return;
+      }
       localStorage.setItem(CLIENT_ID_KEY, clientId);
 
       syncBtn.disabled = true;
       fullResyncBtn.disabled = true;
-      progressEl.textContent = 'Connecting to Gmail\u2026';
+      progressEl.textContent = auto ? 'Auto-sync: connecting to Gmail\u2026' : 'Connecting to Gmail\u2026';
 
       const lastSyncMs = forceFull ? null : Number(localStorage.getItem(LAST_SYNC_KEY)) || null;
       const syncStartedAt = Date.now();
 
       try {
-        const token = await getValidToken(clientId);
+        let token;
+        try {
+          token = await getValidToken(clientId, { forceNonInteractive: auto });
+        } catch (e) {
+          if (auto) {
+            log('Auto-sync skipped this round: Gmail sign-in needed -- click "Sync new emails" once to reconnect', 'skip');
+            return;
+          }
+          throw e;
+        }
         updateGmailStatus();
 
         const query = buildGmailQuery(lastSyncMs);
@@ -412,7 +464,7 @@
         });
 
         if (ids.length === 0) {
-          log('No new messages found', 'skip');
+          log(auto ? 'Auto-sync: no new messages found' : 'No new messages found', 'skip');
           localStorage.setItem(LAST_SYNC_KEY, String(syncStartedAt));
           updateGmailStatus();
           return;
@@ -441,14 +493,14 @@
 
         if (records.length) {
           const { inserted, updated } = await WSTStorage.putEmails(records);
-          log(`✓ Synced ${records.length} message(s) from Gmail: ${inserted} new, ${updated} updated`, 'ok');
+          log(`✓ ${auto ? 'Auto-sync: synced' : 'Synced'} ${records.length} message(s) from Gmail: ${inserted} new, ${updated} updated`, 'ok');
         }
         if (fetchErrors) log(`${fetchErrors} message(s) failed to fetch (see above)`, 'err');
         if (parseErrors) log(`${parseErrors} message(s) could not be parsed as MIME email`, 'err');
 
         localStorage.setItem(LAST_SYNC_KEY, String(syncStartedAt));
       } catch (e) {
-        log(`Gmail sync failed: ${e.message || e}`, 'err');
+        log(`${auto ? 'Auto-sync failed: ' : 'Gmail sync failed: '}${e.message || e}`, 'err');
       } finally {
         progressEl.textContent = '';
         syncBtn.disabled = false;
@@ -463,6 +515,68 @@
       if (confirm('Re-fetch your entire matching mailbox history from Gmail, not just what\u2019s new since last sync?')) {
         runSync(true);
       }
+    });
+
+    // ---- Auto-sync ----
+
+    const autoSyncToggle = panel.querySelector('#wei-autosync-toggle');
+    const autoSyncInterval = panel.querySelector('#wei-autosync-interval');
+
+    function loadAutoSyncSettings() {
+      return {
+        enabled: localStorage.getItem(AUTOSYNC_ENABLED_KEY) === 'true',
+        intervalMin: Number(localStorage.getItem(AUTOSYNC_INTERVAL_KEY)) || 15,
+      };
+    }
+    function saveAutoSyncSettings(enabled, intervalMin) {
+      localStorage.setItem(AUTOSYNC_ENABLED_KEY, String(enabled));
+      localStorage.setItem(AUTOSYNC_INTERVAL_KEY, String(intervalMin));
+    }
+
+    function stopAutoSync() {
+      if (autoSyncTimer) { clearInterval(autoSyncTimer); autoSyncTimer = null; }
+    }
+
+    async function runAutoSyncTick() {
+      if (autoSyncInProgress) return; // don't overlap with an in-flight sync
+      autoSyncInProgress = true;
+      try {
+        await runSync(false, { auto: true });
+      } finally {
+        autoSyncInProgress = false;
+      }
+    }
+
+    function startAutoSync(intervalMin) {
+      stopAutoSync();
+      autoSyncTimer = setInterval(runAutoSyncTick, intervalMin * 60 * 1000);
+    }
+
+    const savedAutoSync = loadAutoSyncSettings();
+    autoSyncToggle.checked = savedAutoSync.enabled;
+    autoSyncInterval.value = String(savedAutoSync.intervalMin);
+    if (savedAutoSync.enabled) startAutoSync(savedAutoSync.intervalMin);
+
+    autoSyncToggle.addEventListener('change', () => {
+      const intervalMin = Number(autoSyncInterval.value);
+      saveAutoSyncSettings(autoSyncToggle.checked, intervalMin);
+      if (autoSyncToggle.checked) {
+        // This click IS a direct user gesture, so an interactive consent
+        // popup is allowed here if needed -- establishes the session that
+        // subsequent silent background ticks can then reuse.
+        runSync(false, { auto: false });
+        startAutoSync(intervalMin);
+        log(`Auto-sync enabled -- syncing every ${intervalMin} minute(s)`, 'ok');
+      } else {
+        stopAutoSync();
+        log('Auto-sync disabled', 'skip');
+      }
+    });
+
+    autoSyncInterval.addEventListener('change', () => {
+      const intervalMin = Number(autoSyncInterval.value);
+      saveAutoSyncSettings(autoSyncToggle.checked, intervalMin);
+      if (autoSyncToggle.checked) startAutoSync(intervalMin);
     });
 
     // ---- Backup / maintenance (unchanged from v2) ----
