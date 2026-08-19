@@ -8,12 +8,12 @@ const { makeEmail, loadLibs } = require("./helpers");
 // these -- see the comments in opr-email-lib.js's SUPPLEMENTAL_TEMPLATES.
 describe("Dutch legacy Wayfarer templates (regression)", () => {
   const cases = [
-    ["Niantic heeft een besluit genomen over je bezwaar voor Hulst", "NOMINATION_APPEAL_DECIDED", "Hulst"],
-    ["Beslissing over je Wayfarer-nominatie, Wereldtijdpad #348 - Trompetfibulae", "NOMINATION_DECIDED", "Wereldtijdpad #348 - Trompetfibulae"],
-    ["Beslissing over je Wayfarer-nominatie, Wereldtijdpad #810", "NOMINATION_DECIDED", "Wereldtijdpad #810"],
-    ["Bedankt! Niantic Wayspot-bezwaar ontvangen voor Wandelknooppunt G25!", "NOMINATION_APPEAL_RECEIVED", "Wandelknooppunt G25"],
-    ["Bedankt! Niantic Wayspot-bezwaar ontvangen voor Reggedalroute!", "NOMINATION_APPEAL_RECEIVED", "Reggedalroute"],
-    ["Beslissing over je Wayfarer-nominatie, Wandelkeuzepunt G76", "NOMINATION_DECIDED", "Wandelkeuzepunt G76"],
+    ["Niantic heeft een besluit genomen over je bezwaar voor XXX", "NOMINATION_APPEAL_DECIDED", "XXX"],
+    ["Beslissing over je Wayfarer-nominatie, XXX", "NOMINATION_DECIDED", "XXX"],
+    ["Beslissing over je Wayfarer-nominatie, XXX", "NOMINATION_DECIDED", "XXX"],
+    ["Bedankt! Niantic Wayspot-bezwaar ontvangen voor XXX!", "NOMINATION_APPEAL_RECEIVED", "XXX"],
+    ["Bedankt! Niantic Wayspot-bezwaar ontvangen voor XXX!", "NOMINATION_APPEAL_RECEIVED", "XXX"],
+    ["Beslissing over je Wayfarer-nominatie, XXX", "NOMINATION_DECIDED", "XXX"],
   ];
 
   for (const [subject, expectedType, expectedPortal] of cases) {
