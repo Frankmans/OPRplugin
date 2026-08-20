@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.9.0
+// @version      2.9.1
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       you
 // @match        https://wayfarer.nianticlabs.com/new/nominations*
@@ -206,9 +206,15 @@
     const MANUAL_OVERRIDES_KEY = 'wsnp_manual_overrides';
 
     // Stable-ish identity for a submission across refreshes, used to attach
-    // manual review decisions to a specific orphaned entry.
+    // manual review decisions to a specific orphaned entry. edit_field is
+    // included because two edits (e.g. Title and Description) for the same
+    // portal submitted the same day would otherwise collide on an
+    // identical key -- confirmed real bug: only one of two same-day,
+    // same-portal edits survived the internal lookup, so only one could
+    // ever be manually resolved.
     function entryKey(s) {
-      return `${s.submission_type}|${s.portal.toLowerCase()}|${s.submitted_date}`;
+      const fieldPart = s.edit_field ? `|${s.edit_field}` : '';
+      return `${s.submission_type}|${s.portal.toLowerCase()}|${s.submitted_date}${fieldPart}`;
     }
 
     function loadOverrides() {
