@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.9.1
+// @version      2.9.2
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
-// @author       you
-// @match        https://wayfarer.nianticlabs.com/new/nominations*
+// @author       Frankmans
+// @match        https://wayfarer.scopely.com/new/nominations*
 // @grant        none
 // @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/opr-email-lib.js
 // @require      https://raw.githubusercontent.com/Frankmans/OPRplugin/refs/heads/main/wst-storage.js
