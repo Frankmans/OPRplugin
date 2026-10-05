@@ -4,16 +4,16 @@
 // This is the "search" logic the panel script runs over classified emails --
 // a direct port of gmail_wayspot_export.py's parsing/matching functions.
 // Where the Python script dispatched on which Gmail search query found a
-// message, this dispatches on the {type, style} pair OPREmail.Email#classify()
+// message, this dispatches on the {type, style} pair OPRSpatialEmail.Email#classify()
 // returns. Function names below are annotated with their Python source name
 // so the two can be diffed against each other.
 //
-// Depends on: window.OPREmail (opr-email-lib.js)
+// Depends on: window.OPRSpatialEmail (opr-email-lib.js)
 // Exposes: window.WST
 // ===========================================================================
 (function (global) {
   "use strict";
-  const { Type, Style } = global.OPREmail;
+  const { Type, Style } = global.OPRSpatialEmail;
 
   // -------------------------------------------------------------------------
   // Shared helpers (python: centered_text_blocks, parse_coordinates, parse_email_date)
@@ -499,7 +499,7 @@
   // build_title_alias_map, resolve_via_title_aliases,
   // resolve_unmatched_nomination_decisions)
   //
-  // classifiedEmails: array of { email: OPREmail.Email, classification, dateIso }
+  // classifiedEmails: array of { email: OPRSpatialEmail.Email, classification, dateIso }
   // -------------------------------------------------------------------------
 
   const STYLE_TO_SOURCE = {

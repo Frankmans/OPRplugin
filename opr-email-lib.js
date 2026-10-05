@@ -24,7 +24,15 @@
 // its own lightweight IndexedDB store instead, using the same StoredEmail
 // shape so the two are still compatible.
 //
-// Exposed as a single global: window.OPREmail
+// Exposed as a single global: window.OPRSpatialEmail
+//
+// NAMING NOTE: this repo (Frankmans/OPRplugin) and Frankmans/AbuseFormImport
+// each ship their own copy of this library, and both run on
+// wayfarer.scopely.com. @grant none scripts share the page window, so two
+// copies both assigning window.OPREmail would overwrite each other (last one
+// loaded wins, for BOTH scripts -- and the AbuseFormImport copy is extended
+// for abuse-report tickets, so that would misclassify). This copy therefore
+// exposes window.OPRSpatialEmail instead; AbuseFormImport keeps OPREmail.
 // ===========================================================================
 (function (global) {
   "use strict";
@@ -1862,7 +1870,7 @@ const TEMPLATES = [
   // -------------------------------------------------------------------------
   // Public API
   // -------------------------------------------------------------------------
-  global.OPREmail = {
+  global.OPRSpatialEmail = {
     Type,
     Style,
     Email,

@@ -12,12 +12,21 @@
 //   { id: string (Message-ID, or a synthetic fallback), filename: string,
 //     ts: number (import time), headers: Header[], body: string }
 //
-// Exposes: window.WSTStorage
+// Exposes: window.WSTSpatialStorage
+//
+// NAMING NOTE: this repo and Frankmans/AbuseFormImport both ship a copy of
+// this module and both run on wayfarer.scopely.com, so they share one
+// origin-wide IndexedDB namespace AND (for @grant none scripts) one page
+// window. To keep them apart, this copy uses its own database name
+// ("wst_spatial_email_store", the AbuseFormImport copy keeps
+// "wst_email_store") and its own global (WSTSpatialStorage, not WSTStorage --
+// otherwise whichever script's copy loaded last would silently win the
+// global and BOTH scripts would end up reading/writing the same database).
 // ===========================================================================
 (function (global) {
   "use strict";
 
-  const DB_NAME = "wst_email_store";
+  const DB_NAME = "wst_spatial_email_store";
   const DB_VERSION = 1;
   const STORE_NAME = "emails";
 
@@ -86,5 +95,5 @@
     }));
   }
 
-  global.WSTStorage = { openDB, putEmails, getAllEmails, countEmails, clearAll, DB_NAME, STORE_NAME };
+  global.WSTSpatialStorage = { openDB, putEmails, getAllEmails, countEmails, clearAll, DB_NAME, STORE_NAME };
 })(window);

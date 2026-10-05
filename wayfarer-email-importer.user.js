@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wayfarer Email Importer
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      3.3.1
+// @version      3.4.1
 // @description  Imports Niantic Wayfarer/Spatial/OPR emails -- directly from Gmail via OAuth, or from .eml files -- using a port of bilde2910/OPR-Tools' email parser, and stores them for the Spatial Nominations Panel script to search.
 // @author       Frankmans
 // @match        https://wayfarer.scopely.com/new/nominations*
@@ -18,7 +18,7 @@
 /*
  * Companion to wayfarer-spatial-nominations-panel.user.js. This script's
  * ONLY job is getting your raw emails into the shared IndexedDB store
- * ("wst_email_store", see wst-storage.js) as parsed-but-unclassified
+ * ("wst_spatial_email_store", see wst-storage.js) as parsed-but-unclassified
  * records -- headers + body, nothing more. It does NOT try to figure out
  * what kind of email something is, match decisions to nominations, or build
  * a submissions list -- that's the panel script's job (wst-business-logic.js).
@@ -62,60 +62,74 @@
     'ingress-support@nianticlabs.com',
     'ingress-support@google.com',
   ];
-  const CLIENT_ID_KEY = 'wei_gmail_client_id';
-  const LAST_SYNC_KEY = 'wei_gmail_last_sync_ms';
-  const AUTOSYNC_ENABLED_KEY = 'wei_autosync_enabled';
-  const AUTOSYNC_INTERVAL_KEY = 'wei_autosync_interval_min';
+  const CLIENT_ID_KEY = 'wsei_gmail_client_id';
+  // One-time convenience: this script's keys used to be 'wei_*', which the
+  // AbuseFormImport importer also uses (localStorage is shared per origin),
+  // so the two overwrote each other's sync state. They're 'wsei_*' now. The
+  // Client ID isn't a secret and is usually the same Google Cloud client, so
+  // carry it over once instead of making you paste it again. The old key is
+  // left alone (AbuseFormImport still owns it). The last-sync timestamp is
+  // deliberately NOT carried over: the new database starts empty, so the
+  // first sync must be a full one.
+  try {
+    if (!localStorage.getItem(CLIENT_ID_KEY)) {
+      const legacyClientId = localStorage.getItem('wei_gmail_client_id');
+      if (legacyClientId) localStorage.setItem(CLIENT_ID_KEY, legacyClientId);
+    }
+  } catch (e) { /* non-fatal */ }
+  const LAST_SYNC_KEY = 'wsei_gmail_last_sync_ms';
+  const AUTOSYNC_ENABLED_KEY = 'wsei_autosync_enabled';
+  const AUTOSYNC_INTERVAL_KEY = 'wsei_autosync_interval_min';
   const CONCURRENCY = 5;
 
   const STYLE = `
-    #wei-btn{
+    #wsei-btn{
       position:fixed; bottom:20px; right:20px; z-index:9999;
       background:#0a0e0c; color:#00e08a; border:1px solid #00e08a;
       font-family:monospace; font-size:13px; padding:10px 16px; border-radius:6px;
       cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.4);
     }
-    #wei-btn:hover{ background:#10160f; }
-    #wei-panel{
+    #wsei-btn:hover{ background:#10160f; }
+    #wsei-panel{
       position:fixed; bottom:70px; right:20px; z-index:9999;
       background:#0a0e0c; color:#d7f5e6; border:1px solid #223026; border-radius:8px;
       font-family:monospace; font-size:12.5px; padding:16px; width:420px; max-height:75vh;
       overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.5); display:none;
     }
-    #wei-panel.open{ display:block; }
-    #wei-panel h3{ margin:0 0 4px; font-size:14px; color:#d7f5e6; }
-    #wei-panel h4{ margin:14px 0 4px; font-size:12px; color:#a8c9b8; border-top:1px solid #223026; padding-top:10px; }
-    #wei-panel .wei-sub{ font-size:11px; color:#6b8579; margin-bottom:10px; }
-    #wei-dropzone{
+    #wsei-panel.open{ display:block; }
+    #wsei-panel h3{ margin:0 0 4px; font-size:14px; color:#d7f5e6; }
+    #wsei-panel h4{ margin:14px 0 4px; font-size:12px; color:#a8c9b8; border-top:1px solid #223026; padding-top:10px; }
+    #wsei-panel .wsei-sub{ font-size:11px; color:#6b8579; margin-bottom:10px; }
+    #wsei-dropzone{
       border:2px dashed #223026; border-radius:6px; padding:24px 10px; text-align:center;
       color:#6b8579; margin-bottom:10px; cursor:pointer;
     }
-    #wei-dropzone.drag{ border-color:#00e08a; color:#00e08a; }
-    #wei-panel input[type=text]{
+    #wsei-dropzone.drag{ border-color:#00e08a; color:#00e08a; }
+    #wsei-panel input[type=text]{
       width:100%; box-sizing:border-box; background:#161d19; color:#d7f5e6;
       border:1px solid #223026; border-radius:4px; padding:6px 8px; font-family:monospace;
       font-size:12px; margin-bottom:6px;
     }
-    #wei-panel button{
+    #wsei-panel button{
       background:#161d19; color:#d7f5e6; border:1px solid #223026; border-radius:4px;
       padding:6px 10px; cursor:pointer; font-family:monospace; font-size:11.5px; margin-right:6px; margin-top:6px;
     }
-    #wei-panel button.primary{ background:#00e08a; color:#04140d; border-color:#00e08a; }
-    #wei-panel button.danger{ color:#ff5d5d; border-color:#ff5d5d; }
-    #wei-panel button:disabled{ opacity:0.5; cursor:default; }
-    #wei-gmail-status{ font-size:11px; color:#6b8579; margin:4px 0; }
-    .wei-autosync-row{ display:flex; align-items:center; gap:8px; font-size:11px; color:#d7f5e6; margin:6px 0; }
-    .wei-autosync-row select{
+    #wsei-panel button.primary{ background:#00e08a; color:#04140d; border-color:#00e08a; }
+    #wsei-panel button.danger{ color:#ff5d5d; border-color:#ff5d5d; }
+    #wsei-panel button:disabled{ opacity:0.5; cursor:default; }
+    #wsei-gmail-status{ font-size:11px; color:#6b8579; margin:4px 0; }
+    .wsei-autosync-row{ display:flex; align-items:center; gap:8px; font-size:11px; color:#d7f5e6; margin:6px 0; }
+    .wsei-autosync-row select{
       background:#161d19; color:#d7f5e6; border:1px solid #223026; border-radius:4px;
       padding:3px 6px; font-family:monospace; font-size:11px;
     }
-    #wei-progress{ font-size:11px; color:#3ec6ff; margin:4px 0; min-height:14px; }
-    #wei-log{
+    #wsei-progress{ font-size:11px; color:#3ec6ff; margin:4px 0; min-height:14px; }
+    #wsei-log{
       margin-top:10px; max-height:220px; overflow-y:auto; font-size:11px; line-height:1.5;
     }
-    #wei-log div.ok{ color:#00e08a; }
-    #wei-log div.skip{ color:#6b8579; }
-    #wei-log div.err{ color:#ff5d5d; }
+    #wsei-log div.ok{ color:#00e08a; }
+    #wsei-log div.skip{ color:#6b8579; }
+    #wsei-log div.err{ color:#ff5d5d; }
   `;
 
   // ---------------------------------------------------------------------
@@ -271,34 +285,34 @@
   // ---------------------------------------------------------------------
 
   function injectUI() {
-    if (document.getElementById('wei-btn')) return;
+    if (document.getElementById('wsei-btn')) return;
 
     const style = document.createElement('style');
     style.textContent = STYLE;
     document.head.appendChild(style);
 
     const btn = document.createElement('button');
-    btn.id = 'wei-btn';
+    btn.id = 'wsei-btn';
     btn.textContent = '📥 Import Emails';
     document.body.appendChild(btn);
 
     const panel = document.createElement('div');
-    panel.id = 'wei-panel';
+    panel.id = 'wsei-panel';
     panel.innerHTML = `
       <h3>Wayfarer Email Importer</h3>
-      <div class="wei-sub" id="wei-count">Loading...</div>
+      <div class="wsei-sub" id="wsei-count">Loading...</div>
 
       <h4>Connect Gmail</h4>
-      <input type="text" id="wei-client-id" placeholder="OAuth Client ID (ends in .apps.googleusercontent.com)">
-      <div id="wei-gmail-status">Not connected.</div>
-      <div id="wei-progress"></div>
+      <input type="text" id="wsei-client-id" placeholder="OAuth Client ID (ends in .apps.googleusercontent.com)">
+      <div id="wsei-gmail-status">Not connected.</div>
+      <div id="wsei-progress"></div>
       <div>
-        <button id="wei-sync" class="primary">Sync new emails</button>
-        <button id="wei-full-resync">Force full re-sync</button>
+        <button id="wsei-sync" class="primary">Sync new emails</button>
+        <button id="wsei-full-resync">Force full re-sync</button>
       </div>
-      <div class="wei-autosync-row">
-        <label><input type="checkbox" id="wei-autosync-toggle"> Auto-sync every</label>
-        <select id="wei-autosync-interval">
+      <div class="wsei-autosync-row">
+        <label><input type="checkbox" id="wsei-autosync-toggle"> Auto-sync every</label>
+        <select id="wsei-autosync-interval">
           <option value="5">5 min</option>
           <option value="15">15 min</option>
           <option value="30">30 min</option>
@@ -307,31 +321,31 @@
       </div>
 
       <h4>Or drop .eml files</h4>
-      <div id="wei-dropzone">Drop .eml files here, or click to choose</div>
-      <input type="file" id="wei-file-input" accept=".eml" multiple style="display:none;">
+      <div id="wsei-dropzone">Drop .eml files here, or click to choose</div>
+      <input type="file" id="wsei-file-input" accept=".eml" multiple style="display:none;">
 
       <h4>Backup / maintenance</h4>
       <div>
-        <button id="wei-export">Export backup JSON</button>
-        <button id="wei-import-backup">Import backup JSON</button>
-        <input type="file" id="wei-backup-input" accept=".json,application/json" style="display:none;">
-        <button id="wei-clear" class="danger">Clear all stored emails</button>
-        <button id="wei-close">Close</button>
+        <button id="wsei-export">Export backup JSON</button>
+        <button id="wsei-import-backup">Import backup JSON</button>
+        <input type="file" id="wsei-backup-input" accept=".json,application/json" style="display:none;">
+        <button id="wsei-clear" class="danger">Clear all stored emails</button>
+        <button id="wsei-close">Close</button>
       </div>
-      <div id="wei-log"></div>
+      <div id="wsei-log"></div>
     `;
     document.body.appendChild(panel);
 
-    const dropzone = panel.querySelector('#wei-dropzone');
-    const fileInput = panel.querySelector('#wei-file-input');
-    const backupInput = panel.querySelector('#wei-backup-input');
-    const logEl = panel.querySelector('#wei-log');
-    const countEl = panel.querySelector('#wei-count');
-    const clientIdInput = panel.querySelector('#wei-client-id');
-    const gmailStatusEl = panel.querySelector('#wei-gmail-status');
-    const progressEl = panel.querySelector('#wei-progress');
-    const syncBtn = panel.querySelector('#wei-sync');
-    const fullResyncBtn = panel.querySelector('#wei-full-resync');
+    const dropzone = panel.querySelector('#wsei-dropzone');
+    const fileInput = panel.querySelector('#wsei-file-input');
+    const backupInput = panel.querySelector('#wsei-backup-input');
+    const logEl = panel.querySelector('#wsei-log');
+    const countEl = panel.querySelector('#wsei-count');
+    const clientIdInput = panel.querySelector('#wsei-client-id');
+    const gmailStatusEl = panel.querySelector('#wsei-gmail-status');
+    const progressEl = panel.querySelector('#wsei-progress');
+    const syncBtn = panel.querySelector('#wsei-sync');
+    const fullResyncBtn = panel.querySelector('#wsei-full-resync');
 
     clientIdInput.value = localStorage.getItem(CLIENT_ID_KEY) || '';
     clientIdInput.addEventListener('change', () => {
@@ -362,7 +376,7 @@
 
     async function refreshCount() {
       try {
-        const n = await WSTStorage.countEmails();
+        const n = await WSTSpatialStorage.countEmails();
         countEl.textContent = `${n} email(s) stored. Open the Spatial Nominations Panel to search them.`;
       } catch (e) {
         countEl.textContent = 'Could not read the email store.';
@@ -376,7 +390,7 @@
     }
 
     function emlToRecord(text, fallbackName) {
-      const email = OPREmail.parseMIME(normalizeEml(text));
+      const email = OPRSpatialEmail.parseMIME(normalizeEml(text));
       const messageId = email.getFirstHeaderValue('Message-ID', null);
       const id = messageId || `synthetic:${fallbackName}:${text.length}`;
       return { id, filename: fallbackName, ts: Date.now(), headers: email.headers, body: email.body };
@@ -403,7 +417,7 @@
       }
 
       if (records.length) {
-        const { inserted, updated } = await WSTStorage.putEmails(records);
+        const { inserted, updated } = await WSTSpatialStorage.putEmails(records);
         log(`✓ Imported ${records.length} file(s): ${inserted} new, ${updated} updated`, 'ok');
       }
       if (parseErrors) log(`${parseErrors} file(s) could not be parsed as MIME email`, 'err');
@@ -492,7 +506,7 @@
         }
 
         if (records.length) {
-          const { inserted, updated } = await WSTStorage.putEmails(records);
+          const { inserted, updated } = await WSTSpatialStorage.putEmails(records);
           log(`✓ ${auto ? 'Auto-sync: synced' : 'Synced'} ${records.length} message(s) from Gmail: ${inserted} new, ${updated} updated`, 'ok');
         }
         if (fetchErrors) log(`${fetchErrors} message(s) failed to fetch (see above)`, 'err');
@@ -519,8 +533,8 @@
 
     // ---- Auto-sync ----
 
-    const autoSyncToggle = panel.querySelector('#wei-autosync-toggle');
-    const autoSyncInterval = panel.querySelector('#wei-autosync-interval');
+    const autoSyncToggle = panel.querySelector('#wsei-autosync-toggle');
+    const autoSyncInterval = panel.querySelector('#wsei-autosync-interval');
 
     function loadAutoSyncSettings() {
       return {
@@ -581,17 +595,17 @@
 
     // ---- Backup / maintenance (unchanged from v2) ----
 
-    panel.querySelector('#wei-export').addEventListener('click', async () => {
-      const all = await WSTStorage.getAllEmails();
+    panel.querySelector('#wsei-export').addEventListener('click', async () => {
+      const all = await WSTSpatialStorage.getAllEmails();
       const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), emails: all })], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `wst-email-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `wst-spatial-email-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       log(`Exported ${all.length} email(s) to a backup file`, 'ok');
     });
 
-    panel.querySelector('#wei-import-backup').addEventListener('click', () => backupInput.click());
+    panel.querySelector('#wsei-import-backup').addEventListener('click', () => backupInput.click());
     backupInput.addEventListener('change', async () => {
       const file = backupInput.files[0];
       backupInput.value = '';
@@ -600,7 +614,7 @@
         const parsed = JSON.parse(await file.text());
         const emails = Array.isArray(parsed) ? parsed : parsed.emails;
         if (!Array.isArray(emails)) { log('That file doesn\u2019t look like a valid backup', 'err'); return; }
-        const { inserted, updated } = await WSTStorage.putEmails(emails);
+        const { inserted, updated } = await WSTSpatialStorage.putEmails(emails);
         log(`✓ Restored backup: ${inserted} new, ${updated} updated`, 'ok');
         await refreshCount();
       } catch (e) {
@@ -608,14 +622,14 @@
       }
     });
 
-    panel.querySelector('#wei-clear').addEventListener('click', async () => {
+    panel.querySelector('#wsei-clear').addEventListener('click', async () => {
       if (!confirm('Delete every stored email from this browser? This cannot be undone (export a backup first if unsure).')) return;
-      await WSTStorage.clearAll();
+      await WSTSpatialStorage.clearAll();
       log('All stored emails cleared', 'skip');
       await refreshCount();
     });
 
-    panel.querySelector('#wei-close').addEventListener('click', () => panel.classList.remove('open'));
+    panel.querySelector('#wsei-close').addEventListener('click', () => panel.classList.remove('open'));
     btn.addEventListener('click', () => {
       panel.classList.toggle('open');
       if (panel.classList.contains('open')) { refreshCount(); updateGmailStatus(); }

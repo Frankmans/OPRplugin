@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.9.2
+// @version      2.10.1
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       Frankmans
 // @match        https://wayfarer.scopely.com/new/nominations*
@@ -18,7 +18,7 @@
  * Companion to wayfarer-email-importer.user.js. That script's only job is
  * getting raw .eml files into the shared IndexedDB store as parsed-but-
  * unclassified records. THIS script does the actual "search": for every
- * stored email it runs OPREmail.Email#classify() (a port of OPR-Tools'
+ * stored email it runs OPRSpatialEmail.Email#classify() (a port of OPR-Tools'
  * subject-line template matching), then hands the classified set to
  * WST.search() (wst-business-logic.js) -- a direct port of
  * gmail_wayspot_export.py's parsing + matching logic (portal name/photo/
@@ -498,12 +498,12 @@
       const summaryEl = panel.querySelector('#wsnp-summary');
       summaryEl.textContent = 'Loading and classifying stored emails...';
       try {
-        const stored = await WSTStorage.getAllEmails();
+        const stored = await WSTSpatialStorage.getAllEmails();
         const classifiedEmails = [];
         unclassifiedCount = 0;
         unclassifiedEmails = [];
         for (const record of stored) {
-          const email = new OPREmail.Email(record.headers, record.body);
+          const email = new OPRSpatialEmail.Email(record.headers, record.body);
           let classification;
           try {
             classification = email.classify();
