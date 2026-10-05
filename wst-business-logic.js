@@ -13,6 +13,16 @@
 // ===========================================================================
 (function (global) {
   "use strict";
+  // This file is @require'd ahead of the panel script, so a throw here
+  // aborts the WHOLE userscript -- the panel button never even appears
+  // (this is what a mismatched/stale opr-email-lib.js used to cause, since
+  // it exposes window.OPRSpatialEmail only in the current version). Fail
+  // soft instead: leave window.WST unset, and let the panel show a visible
+  // "outdated libraries" message in place of the results.
+  if (!global.OPRSpatialEmail) {
+    console.error('[WST] window.OPRSpatialEmail is missing -- opr-email-lib.js is outdated or failed to load (it must be the OPRplugin copy that exposes OPRSpatialEmail). wst-business-logic.js not initialised.');
+    return;
+  }
   const { Type, Style } = global.OPRSpatialEmail;
 
   // -------------------------------------------------------------------------

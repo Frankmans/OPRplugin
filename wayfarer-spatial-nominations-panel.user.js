@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spatial Nominations Panel (Portal Submission Tracker)
 // @namespace    https://github.com/Frankmans/OPRplugin
-// @version      2.10.1
+// @version      2.10.2
 // @description  Shows your imported Wayspot nominations/photos/edits in a panel on the Wayfarer contributions page, classified and matched via a port of bilde2910/OPR-Tools' email parser.
 // @author       Frankmans
 // @match        https://wayfarer.scopely.com/new/nominations*
@@ -496,6 +496,17 @@
 
     async function refresh() {
       const summaryEl = panel.querySelector('#wsnp-summary');
+      // The @require'd libraries can be stale (Tampermonkey caches them,
+      // and they're loaded from GitHub main) -- say so in the panel
+      // instead of failing with an obscure ReferenceError.
+      const missingLibs = [];
+      if (typeof window.OPRSpatialEmail === 'undefined') missingLibs.push('OPRSpatialEmail (opr-email-lib.js)');
+      if (typeof window.WSTSpatialStorage === 'undefined') missingLibs.push('WSTSpatialStorage (wst-storage.js)');
+      if (typeof window.WST === 'undefined') missingLibs.push('WST (wst-business-logic.js)');
+      if (missingLibs.length) {
+        summaryEl.textContent = `Libraries out of date or not loaded: ${missingLibs.join(', ')}. Push all OPRplugin files to GitHub, then update/reinstall this script in Tampermonkey and reload the page.`;
+        return;
+      }
       summaryEl.textContent = 'Loading and classifying stored emails...';
       try {
         const stored = await WSTSpatialStorage.getAllEmails();
