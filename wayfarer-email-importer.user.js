@@ -55,12 +55,7 @@
 
   const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
   const SUPPORTED_SENDERS = [
-    'notices@recon.nianticspatial.com',
-    'notices@wayfarer.nianticlabs.com',
-    'nominations@portals.ingress.com',
-    'hello@pokemongolive.com',
-    'ingress-support@nianticlabs.com',
-    'ingress-support@google.com',
+    'notices@recon.nianticspatial.com'
   ];
   const CLIENT_ID_KEY = 'wsei_gmail_client_id';
   // One-time convenience: this script's keys used to be 'wei_*', which the
